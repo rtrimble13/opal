@@ -1,9 +1,11 @@
 // Root finding and numerical integration.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <stdexcept>
+#include <utility>
 
 namespace opal::math {
 

@@ -51,6 +51,10 @@ if(OPAL_BUILD_PYTHON)
   find_package(pybind11 CONFIG REQUIRED)
   pybind11_add_module(_opal python/bindings.cpp)
   target_link_libraries(_opal PRIVATE opal)
+  # Place the extension inside the Python package so `import opal` works
+  # with PYTHONPATH=python, matching the setup.py in-place build layout.
+  set_target_properties(_opal PROPERTIES
+    LIBRARY_OUTPUT_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/python/opal)
 endif()
 
 install(DIRECTORY include/opal DESTINATION include)

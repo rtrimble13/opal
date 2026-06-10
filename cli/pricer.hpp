@@ -164,8 +164,9 @@ struct EquityTrade {
                 return pde_barrier_price(type, bt, s, K, barrier, tt, rr, qq, v,
                                          rebate, pg);
             if (m == "mc")
-                return mc_gbm(barrier_payoff(type, bt, K, barrier, s, rebate), s,
-                              tt, rr, qq, v, cfg)
+                return mc_gbm(
+                           barrier_payoff(type, bt, K, barrier, s, rebate, rr, tt),
+                           s, tt, rr, qq, v, cfg)
                     .price;
             return barrier_price(type, bt, s, K, barrier, tt, rr, qq, v, rebate);
         } else if (instrument == "asian-arith") {
@@ -222,7 +223,8 @@ private:
         else if (instrument == "digital-cash")
             payoff = digital_payoff(type, K, cash);
         else if (instrument.rfind("barrier-", 0) == 0)
-            payoff = barrier_payoff(type, barrier_type(), K, barrier, s, rebate);
+            payoff =
+                barrier_payoff(type, barrier_type(), K, barrier, s, rebate, rr, tt);
         else if (instrument == "asian-arith")
             payoff = [phi = type_sign(type), K = K](const std::vector<double>& p) {
                 double sum = 0;

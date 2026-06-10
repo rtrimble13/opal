@@ -125,18 +125,22 @@ PYBIND11_MODULE(_opal, m) {
     // ----- vanilla analytics ----------------------------------------------
     m.def(
         "bs_price",
-        [](const std::string& t, double S, double K, double T, double r, double q,
-           double vol) { return bsm_price(parse_type(t), S, K, T, r, q, vol); },
+        [](const std::string& t, double S, double K, double T, double r,
+           double vol, double q) {
+            return bsm_price(parse_type(t), S, K, T, r, q, vol);
+        },
         py::arg("option_type"), py::arg("spot"), py::arg("strike"),
-        py::arg("expiry"), py::arg("rate"), py::arg("div") = 0.0, py::arg("vol"),
+        py::arg("expiry"), py::arg("rate"), py::arg("vol"), py::arg("div") = 0.0,
         "Black-Scholes-Merton price with continuous dividend yield.");
 
     m.def(
         "bs_greeks",
-        [](const std::string& t, double S, double K, double T, double r, double q,
-           double vol) { return bsm_greeks(parse_type(t), S, K, T, r, q, vol); },
+        [](const std::string& t, double S, double K, double T, double r,
+           double vol, double q) {
+            return bsm_greeks(parse_type(t), S, K, T, r, q, vol);
+        },
         py::arg("option_type"), py::arg("spot"), py::arg("strike"),
-        py::arg("expiry"), py::arg("rate"), py::arg("div") = 0.0, py::arg("vol"),
+        py::arg("expiry"), py::arg("rate"), py::arg("vol"), py::arg("div") = 0.0,
         "Full analytic greeks (vega/theta/rho per unit; scale as needed).");
 
     m.def(
@@ -175,32 +179,32 @@ PYBIND11_MODULE(_opal, m) {
     // ----- digitals / exotics (analytic) ------------------------------------
     m.def(
         "digital_price",
-        [](const std::string& t, double S, double K, double T, double r, double q,
-           double vol, double cash, bool asset) {
+        [](const std::string& t, double S, double K, double T, double r,
+           double vol, double q, double cash, bool asset) {
             return asset ? asset_or_nothing_price(parse_type(t), S, K, T, r, q, vol)
                          : cash_or_nothing_price(parse_type(t), S, K, T, r, q, vol,
                                                  cash);
         },
         py::arg("option_type"), py::arg("spot"), py::arg("strike"),
-        py::arg("expiry"), py::arg("rate"), py::arg("div") = 0.0, py::arg("vol"),
+        py::arg("expiry"), py::arg("rate"), py::arg("vol"), py::arg("div") = 0.0,
         py::arg("cash") = 1.0, py::arg("asset") = false);
 
     m.def(
         "barrier_price",
         [](const std::string& t, const std::string& bt, double S, double K,
-           double H, double T, double r, double q, double vol, double rebate) {
+           double H, double T, double r, double vol, double q, double rebate) {
             return barrier_price(parse_type(t), parse_barrier(bt), S, K, H, T, r,
                                  q, vol, rebate);
         },
         py::arg("option_type"), py::arg("barrier_type"), py::arg("spot"),
         py::arg("strike"), py::arg("barrier"), py::arg("expiry"), py::arg("rate"),
-        py::arg("div") = 0.0, py::arg("vol"), py::arg("rebate") = 0.0,
+        py::arg("vol"), py::arg("div") = 0.0, py::arg("rebate") = 0.0,
         "Reiner-Rubinstein continuously monitored single barrier.");
 
     m.def(
         "asian_price",
-        [](const std::string& t, double S, double K, double T, double r, double q,
-           double vol, const std::string& avg, int fixings) {
+        [](const std::string& t, double S, double K, double T, double r,
+           double vol, double q, const std::string& avg, int fixings) {
             if (avg == "geometric") {
                 if (fixings > 0)
                     return discrete_geometric_asian_price(parse_type(t), S, K, T,
@@ -210,29 +214,30 @@ PYBIND11_MODULE(_opal, m) {
             return arithmetic_asian_price(parse_type(t), S, K, T, r, q, vol);
         },
         py::arg("option_type"), py::arg("spot"), py::arg("strike"),
-        py::arg("expiry"), py::arg("rate"), py::arg("div") = 0.0, py::arg("vol"),
+        py::arg("expiry"), py::arg("rate"), py::arg("vol"), py::arg("div") = 0.0,
         py::arg("average") = "arithmetic", py::arg("fixings") = 0,
         "Asian option: geometric exact, arithmetic via Turnbull-Wakeman.");
 
     m.def(
         "lookback_price",
-        [](const std::string& t, double S, double K, double T, double r, double q,
-           double vol, const std::string& strike_style, double extremum) {
+        [](const std::string& t, double S, double T, double r, double vol,
+           double K, double q, const std::string& strike_style, double extremum) {
             if (strike_style == "floating")
                 return floating_lookback_price(parse_type(t), S, T, r, q, vol,
                                                extremum);
             return fixed_lookback_price(parse_type(t), S, K, T, r, q, vol,
                                         extremum);
         },
-        py::arg("option_type"), py::arg("spot"), py::arg("strike") = 0.0,
-        py::arg("expiry"), py::arg("rate"), py::arg("div") = 0.0, py::arg("vol"),
-        py::arg("strike_style") = "floating", py::arg("extremum") = 0.0);
+        py::arg("option_type"), py::arg("spot"), py::arg("expiry"),
+        py::arg("rate"), py::arg("vol"), py::arg("strike") = 0.0,
+        py::arg("div") = 0.0, py::arg("strike_style") = "floating",
+        py::arg("extremum") = 0.0);
 
     // ----- numerical engines ------------------------------------------------
     m.def(
         "binomial_price",
         [](const std::string& t, const std::string& style, double S, double K,
-           double T, double r, double q, double vol, int steps,
+           double T, double r, double vol, double q, int steps,
            const std::string& flavor) {
             if (flavor == "crr")
                 return binomial_crr_price(parse_type(t), parse_style(style), S, K,
@@ -241,40 +246,39 @@ PYBIND11_MODULE(_opal, m) {
                                      r, q, vol, steps);
         },
         py::arg("option_type"), py::arg("exercise"), py::arg("spot"),
-        py::arg("strike"), py::arg("expiry"), py::arg("rate"),
-        py::arg("div") = 0.0, py::arg("vol"), py::arg("steps") = 501,
-        py::arg("flavor") = "lr",
+        py::arg("strike"), py::arg("expiry"), py::arg("rate"), py::arg("vol"),
+        py::arg("div") = 0.0, py::arg("steps") = 501, py::arg("flavor") = "lr",
         "Binomial tree (Leisen-Reimer default, or flavor='crr').");
 
     m.def(
         "trinomial_price",
         [](const std::string& t, const std::string& style, double S, double K,
-           double T, double r, double q, double vol, int steps) {
+           double T, double r, double vol, double q, int steps) {
             return trinomial_price(parse_type(t), parse_style(style), S, K, T, r,
                                    q, vol, steps);
         },
         py::arg("option_type"), py::arg("exercise"), py::arg("spot"),
-        py::arg("strike"), py::arg("expiry"), py::arg("rate"),
-        py::arg("div") = 0.0, py::arg("vol"), py::arg("steps") = 400);
+        py::arg("strike"), py::arg("expiry"), py::arg("rate"), py::arg("vol"),
+        py::arg("div") = 0.0, py::arg("steps") = 400);
 
     m.def(
         "pde_price",
         [](const std::string& t, const std::string& style, double S, double K,
-           double T, double r, double q, double vol, int grid) {
+           double T, double r, double vol, double q, int grid) {
             return pde_price(parse_type(t), parse_style(style), S, K, T, r, q,
                              vol, PdeGrid{grid, grid, 6.0});
         },
         py::arg("option_type"), py::arg("exercise"), py::arg("spot"),
-        py::arg("strike"), py::arg("expiry"), py::arg("rate"),
-        py::arg("div") = 0.0, py::arg("vol"), py::arg("grid") = 400,
+        py::arg("strike"), py::arg("expiry"), py::arg("rate"), py::arg("vol"),
+        py::arg("div") = 0.0, py::arg("grid") = 400,
         "Crank-Nicolson finite difference price.");
 
     m.def(
         "mc_price",
-        [](const std::string& t, double S, double K, double T, double r, double q,
-           double vol, const std::string& payoff, std::size_t paths, int steps,
-           std::uint64_t seed, double barrier, const std::string& barrier_type,
-           double cash) {
+        [](const std::string& t, double S, double K, double T, double r,
+           double vol, double q, const std::string& payoff, std::size_t paths,
+           int steps, std::uint64_t seed, double barrier,
+           const std::string& barrier_type, double cash) {
             McConfig cfg;
             cfg.paths = paths;
             cfg.steps = steps;
@@ -305,7 +309,7 @@ PYBIND11_MODULE(_opal, m) {
             throw std::invalid_argument("unknown payoff '" + payoff + "'");
         },
         py::arg("option_type"), py::arg("spot"), py::arg("strike"),
-        py::arg("expiry"), py::arg("rate"), py::arg("div") = 0.0, py::arg("vol"),
+        py::arg("expiry"), py::arg("rate"), py::arg("vol"), py::arg("div") = 0.0,
         py::arg("payoff") = "vanilla", py::arg("paths") = 100000,
         py::arg("steps") = 252, py::arg("seed") = 42, py::arg("barrier") = 0.0,
         py::arg("barrier_type") = "down-out", py::arg("cash") = 1.0,
@@ -315,7 +319,7 @@ PYBIND11_MODULE(_opal, m) {
     m.def(
         "mc_custom",
         [](std::function<double(const std::vector<double>&)> payoff, double S,
-           double T, double r, double q, double vol, std::size_t paths, int steps,
+           double T, double r, double vol, double q, std::size_t paths, int steps,
            std::uint64_t seed, bool antithetic) {
             McConfig cfg;
             cfg.paths = paths;
@@ -325,7 +329,7 @@ PYBIND11_MODULE(_opal, m) {
             return mc_gbm(payoff, S, T, r, q, vol, cfg);
         },
         py::arg("payoff"), py::arg("spot"), py::arg("expiry"), py::arg("rate"),
-        py::arg("div") = 0.0, py::arg("vol"), py::arg("paths") = 50000,
+        py::arg("vol"), py::arg("div") = 0.0, py::arg("paths") = 50000,
         py::arg("steps") = 252, py::arg("seed") = 42, py::arg("antithetic") = true,
         "Monte Carlo on a user-supplied Python path payoff f(path)->float. "
         "The path excludes S0 and the payoff is settled (undiscounted) at "

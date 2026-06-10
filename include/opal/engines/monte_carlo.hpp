@@ -6,6 +6,7 @@
 // t_i = (i+1) T / steps) and return the undiscounted payoff at T.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <functional>
@@ -234,23 +235,35 @@ inline PathPayoff lookback_payoff(OptionType type, StrikeStyle strike, double K,
 }
 
 /// Discretely monitored barrier payoff (monitoring at every step).
+/// Rebate conventions match the analytic engine: knock-out rebates are paid
+/// at the hit time (pass r and T so the rebate is accrued to expiry, where
+/// the engine discounts it back); knock-in rebates are paid at expiry if the
+/// option never knocks in. With the default r = T = 0 the knock-out rebate
+/// is treated as paid at expiry instead.
 inline PathPayoff barrier_payoff(OptionType type, BarrierType bt, double K,
-                                 double H, double S0, double rebate = 0.0) {
+                                 double H, double S0, double rebate = 0.0,
+                                 double r = 0.0, double T = 0.0) {
     double phi = type_sign(type);
     bool down = is_down_barrier(bt);
     bool in = is_knock_in(bt);
     return [=](const std::vector<double>& p) {
-        bool hit = down ? (S0 <= H) : (S0 >= H);
-        if (!hit)
-            for (double s : p) {
-                if (down ? (s <= H) : (s >= H)) {
-                    hit = true;
+        // hit_idx: -2 = never hit, -1 = hit at inception, else step index.
+        int hit_idx = (down ? (S0 <= H) : (S0 >= H)) ? -1 : -2;
+        if (hit_idx == -2)
+            for (std::size_t i = 0; i < p.size(); ++i) {
+                if (down ? (p[i] <= H) : (p[i] >= H)) {
+                    hit_idx = static_cast<int>(i);
                     break;
                 }
             }
+        bool hit = (hit_idx != -2);
         double vanilla = std::max(phi * (p.back() - K), 0.0);
         if (in) return hit ? vanilla : rebate;
-        return hit ? rebate : vanilla;  // knock-out (rebate paid at expiry)
+        if (!hit) return vanilla;
+        double t_hit =
+            (hit_idx < 0) ? 0.0
+                          : (hit_idx + 1) * T / static_cast<double>(p.size());
+        return rebate * std::exp(r * (T - t_hit));
     };
 }
 

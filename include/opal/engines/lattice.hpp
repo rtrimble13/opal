@@ -4,6 +4,7 @@
 //   - Kamrad-Ritchken style trinomial
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 

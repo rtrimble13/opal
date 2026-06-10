@@ -138,6 +138,29 @@ TEST_CASE(monte_carlo_lookback_and_barrier) {
     CHECK_CLOSE(mcb.price, cont_b, 0.08 * cont_b + 4.0 * mcb.std_error);
 }
 
+TEST_CASE(monte_carlo_barrier_rebate_convention) {
+    // Knock-out rebates are paid at hit: passing r and T accrues the rebate
+    // to expiry so the discounted MC value matches the analytic convention.
+    double S = 100, K = 100, H = 92, T = 0.5, r = 0.08, q = 0.0, sig = 0.3,
+           R = 5.0;
+    McConfig cfg;
+    cfg.paths = 40000;
+    cfg.steps = 500;
+    auto hit_paid = mc_gbm(barrier_payoff(OptionType::Call, BarrierType::DownOut,
+                                          K, H, S, R, r, T),
+                           S, T, r, q, sig, cfg);
+    auto expiry_paid = mc_gbm(
+        barrier_payoff(OptionType::Call, BarrierType::DownOut, K, H, S, R), S, T,
+        r, q, sig, cfg);
+    // Receiving the rebate earlier is strictly more valuable when r > 0.
+    CHECK_TRUE(hit_paid.price > expiry_paid.price);
+    // And the hit-time convention tracks the analytic price (up to the
+    // discrete-monitoring gap).
+    double ana = barrier_price(OptionType::Call, BarrierType::DownOut, S, K, H, T,
+                               r, q, sig, R);
+    CHECK_CLOSE(hit_paid.price, ana, 0.05 * ana + 4.0 * hit_paid.std_error);
+}
+
 TEST_CASE(monte_carlo_heston) {
     double S = 100, K = 100, T = 1.0, r = 0.03, q = 0.0;
     HestonParams hp{0.04, 1.5, 0.04, 0.3, -0.6};

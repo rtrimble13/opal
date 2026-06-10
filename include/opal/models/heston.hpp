@@ -6,10 +6,12 @@
 //   dv = kappa (theta - v) dt + xi sqrt(v) dW2,   d<W1,W2> = rho dt
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <complex>
 
 #include "opal/core/types.hpp"
+#include "opal/math/normal.hpp"
 #include "opal/math/solvers.hpp"
 
 namespace opal {
@@ -63,7 +65,7 @@ inline double heston_prob(int j, double S, double K, double T, double r, double 
     // The integrand decays like exp(-c*phi); 200 is far past machine epsilon
     // for typical parameters.
     double integral = math::integrate(integrand, 1e-8, 200.0, 1e-10);
-    return 0.5 + integral / M_PI;
+    return 0.5 + integral / math::PI;
 }
 
 }  // namespace detail

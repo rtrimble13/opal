@@ -2,14 +2,23 @@
 #pragma once
 
 #include <cctype>
-#include <chrono>
 #include <cstdlib>
+#include <ctime>
 #include <map>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace opal::cli {
+
+/// Portable UTC mktime: timegm is POSIX, _mkgmtime is the MSVC equivalent.
+inline std::time_t utc_mktime(std::tm* tm) {
+#ifdef _WIN32
+    return _mkgmtime(tm);
+#else
+    return timegm(tm);
+#endif
+}
 
 class Args {
 public:
@@ -68,7 +77,7 @@ public:
             tm.tm_mon = std::stoi(v.substr(5, 2)) - 1;
             tm.tm_mday = std::stoi(v.substr(8, 2));
             tm.tm_hour = 12;
-            std::time_t target = timegm(&tm);
+            std::time_t target = utc_mktime(&tm);
             std::time_t now = std::time(nullptr);
             double days = double(target - now) / 86400.0;
             if (days <= 0.0)

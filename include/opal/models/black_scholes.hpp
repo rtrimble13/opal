@@ -6,6 +6,7 @@
 //            b = r - rf  for an FX option (rf = foreign rate).
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 #include "opal/core/types.hpp"

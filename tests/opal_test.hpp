@@ -3,8 +3,10 @@
 
 #include <cmath>
 #include <cstdio>
+#include <exception>
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace opal_test {

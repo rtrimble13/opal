@@ -1,12 +1,14 @@
 // Standard normal distribution utilities.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
 namespace opal::math {
 
+inline constexpr double PI = 3.1415926535897932384626434;
 inline constexpr double INV_SQRT_2PI = 0.3989422804014326779399461;
 inline constexpr double SQRT_2 = 1.4142135623730950488016887;
 
@@ -93,7 +95,7 @@ inline double bivar_norm_cdf(double a, double b, double rho) {
                 bvn += w20[i] * std::exp((sn * h * k - hs) / (1.0 - sn * sn));
             }
         }
-        bvn = bvn * asr / (4.0 * M_PI) + norm_cdf(-h) * norm_cdf(-k);
+        bvn = bvn * asr / (4.0 * PI) + norm_cdf(-h) * norm_cdf(-k);
     } else {
         if (rho < 0.0) { k = -k; }
         if (std::fabs(rho) < 1.0) {
@@ -110,7 +112,7 @@ inline double bivar_norm_cdf(double a, double b, double rho) {
             }
             if (-h * k < 100.0) {
                 double bsq = std::sqrt(bs);
-                bvn -= std::exp(-h * k / 2.0) * std::sqrt(2.0 * M_PI) *
+                bvn -= std::exp(-h * k / 2.0) * std::sqrt(2.0 * PI) *
                        norm_cdf(-bsq / a2) * bsq *
                        (1.0 - c * bs * (1.0 - d * bs / 5.0) / 3.0);
             }
@@ -128,7 +130,7 @@ inline double bivar_norm_cdf(double a, double b, double rho) {
                     }
                 }
             }
-            bvn = -bvn / (2.0 * M_PI);
+            bvn = -bvn / (2.0 * PI);
         }
         if (rho > 0.0) {
             bvn += norm_cdf(-std::max(h, k));

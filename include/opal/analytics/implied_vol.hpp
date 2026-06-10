@@ -1,9 +1,11 @@
 // Implied volatility solvers (Newton with safeguarded Brent fallback).
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 
 #include "opal/core/types.hpp"
+#include "opal/math/normal.hpp"
 #include "opal/math/solvers.hpp"
 #include "opal/models/black_scholes.hpp"
 
@@ -31,7 +33,7 @@ inline double implied_vol_bsm(OptionType type, double price, double S, double K,
     auto df = [&](double v) { return gbs_greeks(type, S, K, T, r, b, v).vega; };
 
     // Corrado-Miller style starting guess, clamped.
-    double guess = std::sqrt(2.0 * M_PI / T) * price / S;
+    double guess = std::sqrt(2.0 * math::PI / T) * price / S;
     if (guess < 0.05) guess = 0.05;
     if (guess > 2.0) guess = 2.0;
     return math::newton_safe(f, df, guess, 1e-9, 20.0, tol);

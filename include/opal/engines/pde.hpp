@@ -4,6 +4,7 @@
 // knock-out barriers (knock-ins via in-out parity).
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <vector>
 

@@ -59,12 +59,15 @@ METHODS  (--method, default auto)
   crr        Cox-Ross-Rubinstein binomial                    [--steps]
   trinomial  Trinomial tree                                  [--steps]
   pde        Crank-Nicolson finite differences               [--grid]
-  mc         Monte Carlo (default for asian-arith)           [--paths --steps --seed]
+  mc         Monte Carlo (default for asian-arith); for american
+             instruments runs Longstaff-Schwartz LSMC        [--paths --steps --seed]
 
 EXOTIC PARAMETERS
   --barrier / -H   Barrier level        --rebate          Barrier rebate
   --cash           Digital cash payout  --payoff-strike   Gap payoff strike
   --extremum       Running min/max for seasoned lookbacks
+  --dividends      Discrete cash dividends t:amount[,t:amount...]
+                   (european/american, bsm model; escrowed-spot convention)
 
 RATES PARAMETERS
   --tenor      Swap tenor in years (swaption) / T2 of the bond (zcb-option)
@@ -72,6 +75,8 @@ RATES PARAMETERS
   --first-fixing   First caplet fixing time (default 1/freq)
   --notional / -n  Notional (default 100)
   --vol-type   lognormal (default) | normal
+  --ois-rate   Flat OIS discount rate for multi-curve pricing
+               (forwards projected off --rate, cashflows discounted on OIS)
 
 COMMAND-SPECIFIC
   implied:    --price <market price>
@@ -89,7 +94,11 @@ EXAMPLES
   opal price -i asian-arith -S 100 -K 100 -T 1 -r 5% -v 30% --paths 200000
   opal price --model heston -S 100 -K 100 -T 1 -r 3% --v0 0.04 --kappa 1.5 \
              --theta 0.04 --xi 0.4 --rho -0.6
+  opal price -i american -t call -S 100 -K 100 -T 1 -r 4% -v 25% \
+             --dividends 0.25:1.50,0.75:1.50
+  opal price -i american -t put -S 100 -K 100 -T 1 -r 5% -v 25% --method mc
   opal price -i cap -K 4% -T 5 -r 4.2% -v 30% --freq 4
+  opal price -i cap -K 4% -T 5 -r 4.2% --ois-rate 3.8% -v 30% --freq 4
   opal price -i swaption -t payer -K 4% -T 1 --tenor 5 -r 4% -v 25%
   opal greeks -S 100 -K 100 -T 0.5 -r 5% -v 20%
   opal implied -S 100 -K 105 -T 0.5 -r 4% --price 3.85
@@ -107,10 +116,16 @@ void cmd_price_rates(const Args& a, OutputFormat out) {
     std::string model = a.get_str("model", "black76");
     double notional = a.get_num("notional", 100.0);
     double r = a.require_num("rate");
-    DiscountCurve curve(r);
+    DiscountCurve curve(r);  // projection curve
+    // OIS discounting: --ois-rate sets a separate (flat) discount curve;
+    // defaults to single-curve pricing on --rate.
+    double ois = a.get_num("ois-rate", r);
+    DiscountCurve disc(ois);
+    bool dual = a.has("ois-rate");
     Report rep;
     rep.add("instrument", inst);
     rep.add("model", model);
+    if (dual) rep.add("ois_rate", ois, 6);
 
     if (inst == "cap" || inst == "floor") {
         bool is_cap = (inst == "cap");
@@ -129,7 +144,8 @@ void cmd_price_rates(const Args& a, OutputFormat out) {
             RateVolType vt = a.get_str("vol-type", "lognormal") == "normal"
                                  ? RateVolType::Normal
                                  : RateVolType::Lognormal;
-            auto res = cap_floor_price(curve, K, vol, first, T, tau, is_cap, vt);
+            auto res =
+                cap_floor_price(disc, curve, K, vol, first, T, tau, is_cap, vt);
             price = res.price;
             rep.add("caplets", static_cast<double>(res.caplets.size()), 0);
         }
@@ -154,7 +170,8 @@ void cmd_price_rates(const Args& a, OutputFormat out) {
             RateVolType vt = a.get_str("vol-type", "lognormal") == "normal"
                                  ? RateVolType::Normal
                                  : RateVolType::Lognormal;
-            auto res = cap_floor_price(curve, K, vol, T1, T2, T2 - T1, is_cap, vt);
+            auto res =
+                cap_floor_price(disc, curve, K, vol, T1, T2, T2 - T1, is_cap, vt);
             price = res.price;
         }
         rep.add("fixing", T1, 4);
@@ -183,7 +200,7 @@ void cmd_price_rates(const Args& a, OutputFormat out) {
             RateVolType vt = a.get_str("vol-type", "lognormal") == "normal"
                                  ? RateVolType::Normal
                                  : RateVolType::Lognormal;
-            res = swaption_price(curve, st, K, vol, T, tenor, freq, vt);
+            res = swaption_price(disc, curve, st, K, vol, T, tenor, freq, vt);
         }
         rep.add("style", st == SwaptionType::Payer ? "payer" : "receiver");
         rep.add("strike", K, 6);

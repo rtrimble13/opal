@@ -25,13 +25,16 @@ struct CapFloorResult {
     std::vector<CapletDetail> caplets;
 };
 
-/// Cap (is_cap=true) or floor on the simple forward rate, strike K, flat
-/// volatility `vol` (Black or normal depending on vol_type), unit notional.
-/// Caplets fix at t, t+tau, ... and pay at fixing + tau, with the first
-/// fixing at `first_fixing` (the period starting today is conventionally
-/// excluded) and the last payment no later than `maturity`.
-inline CapFloorResult cap_floor_price(const DiscountCurve& curve, double K,
-                                      double vol, double first_fixing,
+/// Multi-curve cap (is_cap=true) or floor on the simple forward rate:
+/// forwards are projected off `forward_curve`, cashflows discounted on
+/// `discount_curve` (OIS). Strike K, flat volatility `vol` (Black or normal
+/// per vol_type), unit notional. Caplets fix at t, t+tau, ... and pay at
+/// fixing + tau, with the first fixing at `first_fixing` (the period
+/// starting today is conventionally excluded) and the last payment no later
+/// than `maturity`.
+inline CapFloorResult cap_floor_price(const DiscountCurve& discount_curve,
+                                      const DiscountCurve& forward_curve,
+                                      double K, double vol, double first_fixing,
                                       double maturity, double tau, bool is_cap,
                                       RateVolType vol_type = RateVolType::Lognormal) {
     require(tau > 0.0, "cap: tau must be positive");
@@ -41,8 +44,8 @@ inline CapFloorResult cap_floor_price(const DiscountCurve& curve, double K,
     CapFloorResult res;
     for (double t1 = first_fixing; t1 + tau <= maturity + 1e-10; t1 += tau) {
         double t2 = t1 + tau;
-        double F = curve.forward_rate(t1, t2);
-        double df = curve.discount(t2);
+        double F = forward_curve.forward_rate(t1, t2);
+        double df = discount_curve.discount(t2);
         double undiscounted;
         if (vol_type == RateVolType::Lognormal) {
             require(F > 0.0, "cap: lognormal vol requires positive forwards; "
@@ -56,6 +59,15 @@ inline CapFloorResult cap_floor_price(const DiscountCurve& curve, double K,
         res.price += pv;
     }
     return res;
+}
+
+/// Single-curve convenience: projection and discounting on the same curve.
+inline CapFloorResult cap_floor_price(const DiscountCurve& curve, double K,
+                                      double vol, double first_fixing,
+                                      double maturity, double tau, bool is_cap,
+                                      RateVolType vol_type = RateVolType::Lognormal) {
+    return cap_floor_price(curve, curve, K, vol, first_fixing, maturity, tau,
+                           is_cap, vol_type);
 }
 
 }  // namespace opal

@@ -51,12 +51,17 @@ from opal._opal import (  # noqa: F401
     barrier_price,
     asian_price,
     lookback_price,
+    # discrete cash dividends
+    bs_discrete_div_price,
+    binomial_discrete_div_price,
     # numerical engines
     binomial_price,
     trinomial_price,
     pde_price,
     mc_price,
     mc_custom,
+    lsmc_price,
+    lsmc_heston_price,
     # stochastic vol
     heston_price,
     heston_mc,
@@ -65,7 +70,9 @@ from opal._opal import (  # noqa: F401
     sabr_price,
     # rates
     cap_floor_price,
+    cap_floor_price_ois,
     swaption_price,
+    swaption_price_ois,
     sabr_swaption_price,
     hw_zcb_option,
     hw_caplet,
@@ -80,9 +87,12 @@ __all__ = [
     "bs_price", "bs_greeks", "black76_price", "bachelier_price",
     "implied_vol", "implied_vol_bachelier",
     "digital_price", "barrier_price", "asian_price", "lookback_price",
+    "bs_discrete_div_price", "binomial_discrete_div_price",
     "binomial_price", "trinomial_price", "pde_price", "mc_price", "mc_custom",
+    "lsmc_price", "lsmc_heston_price",
     "heston_price", "heston_mc", "sabr_vol", "sabr_normal_vol", "sabr_price",
-    "cap_floor_price", "swaption_price", "sabr_swaption_price",
+    "cap_floor_price", "cap_floor_price_ois", "swaption_price",
+    "swaption_price_ois", "sabr_swaption_price",
     "hw_zcb_option", "hw_caplet", "hw_floorlet", "hw_cap",
     "__version__",
 ]

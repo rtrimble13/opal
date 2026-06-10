@@ -66,6 +66,42 @@ TEST_CASE(swaption_black) {
     CHECK_CLOSE(sabr.price, payer.price, 1e-6);
 }
 
+TEST_CASE(multi_curve_ois) {
+    DiscountCurve ois(0.035);
+    DiscountCurve proj(0.040);  // projection curve above OIS (positive basis)
+    double K = 0.04, vol = 0.25;
+
+    // Dual-curve with identical curves collapses to single-curve exactly.
+    auto single = cap_floor_price(proj, K, vol, 0.25, 3.0, 0.25, true);
+    auto dual_same = cap_floor_price(proj, proj, K, vol, 0.25, 3.0, 0.25, true);
+    CHECK_CLOSE(dual_same.price, single.price, 1e-15);
+    auto sw_single = swaption_price(proj, SwaptionType::Payer, K, 0.3, 1.0, 5.0);
+    auto sw_dual_same =
+        swaption_price(proj, proj, SwaptionType::Payer, K, 0.3, 1.0, 5.0);
+    CHECK_CLOSE(sw_dual_same.price, sw_single.price, 1e-15);
+    CHECK_CLOSE(sw_dual_same.forward_swap_rate, sw_single.forward_swap_rate, 1e-12);
+
+    // OIS discounting with higher projected forwards: same forwards as the
+    // projection-only run, discounted on the (higher-DF) OIS curve -> caplets
+    // are each worth more.
+    auto dual = cap_floor_price(ois, proj, K, vol, 0.25, 3.0, 0.25, true);
+    CHECK_TRUE(dual.price > single.price);
+    for (std::size_t i = 0; i < dual.caplets.size(); ++i)
+        CHECK_CLOSE(dual.caplets[i].forward, single.caplets[i].forward, 1e-12);
+
+    // Multi-curve swaption: par rate reflects the projection curve, annuity
+    // the OIS curve; payer/receiver parity holds at the multi-curve par rate.
+    auto m = detail::swap_metrics(ois, proj, 1.0, 5.0, 2.0);
+    auto m_proj = detail::swap_metrics(proj, 1.0, 5.0, 2.0);
+    CHECK_CLOSE(m.forward_swap_rate, m_proj.forward_swap_rate, 5e-4);
+    CHECK_TRUE(m.annuity > m_proj.annuity);  // OIS discounts less
+    auto payer = swaption_price(ois, proj, SwaptionType::Payer,
+                                m.forward_swap_rate, 0.3, 1.0, 5.0);
+    auto recv = swaption_price(ois, proj, SwaptionType::Receiver,
+                               m.forward_swap_rate, 0.3, 1.0, 5.0);
+    CHECK_CLOSE(payer.price, recv.price, 1e-12);
+}
+
 TEST_CASE(hull_white) {
     DiscountCurve curve(0.05);
     HullWhiteParams p{0.1, 0.01};

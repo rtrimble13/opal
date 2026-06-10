@@ -1,3 +1,7 @@
 [build-system]
 requires = ["setuptools>=61", "pybind11>=2.10"]
 build-backend = "setuptools.build_meta"
+
+[tool.cibuildwheel]
+build = "cp39-* cp310-* cp311-* cp312-* cp313-*"
+test-command = "python -c \"import opal; assert abs(opal.bs_price('call', spot=100, strike=100, expiry=1, rate=0.05, vol=0.2) - 10.4506) < 1e-3\""

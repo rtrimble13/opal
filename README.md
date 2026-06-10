@@ -11,11 +11,15 @@ risk management, and a Python API for scripting and Jupyter workflows.
 | Model | Use |
 |---|---|
 | Black–Scholes–Merton | Equity options with continuous dividend yield, full analytic greeks (incl. vanna, volga, charm) |
+| Discrete cash dividends | Escrowed-spot model for Europeans; Leisen–Reimer tree with dividend add-back for American early exercise |
 | Black-76 | Options on forwards/futures, caps/floors, swaptions |
 | Bachelier (normal) | Rates options in low/negative rate regimes |
-| Heston | Stochastic volatility, semi-analytic via characteristic function ("little trap" formulation) + Monte Carlo for exotics |
+| Heston | Stochastic volatility, semi-analytic via characteristic function ("little trap" formulation) + Monte Carlo for exotics, Longstaff–Schwartz for American exercise |
 | SABR (Hagan 2002) | Vol smile for swaptions and rate options, lognormal and normal vols |
 | Hull–White 1F | Bond options, caplets/floorlets, caps/floors on a fitted curve |
+
+Caps/floors and swaptions support **multi-curve OIS discounting**: forwards
+projected off one curve, cashflows discounted on another.
 
 **Payoffs**
 
@@ -37,6 +41,7 @@ Python).
 | CRR binomial, trinomial | Cross-checking and pedagogy |
 | Crank–Nicolson PDE | Rannacher start-up, American exercise, knock-out barriers as boundary conditions |
 | Monte Carlo | Antithetic variates, geometric-Asian control variate, standard errors reported, Heston full-truncation Euler |
+| Longstaff–Schwartz | American exercise by least-squares Monte Carlo under GBM and Heston (variance in the regression basis) |
 
 **Analytics**: implied vol (Newton + Brent safeguarded) for BSM/Black-76/
 Bachelier, analytic and bump-and-revalue greeks, scenario grids, option
@@ -72,8 +77,17 @@ opal price -i barrier-up-out -S 100 -K 100 -H 120 -T 1 -r 5% -v 25%
 opal price -i asian-arith -S 100 -K 100 -T 1 -r 5% -v 30% --paths 200000
 opal price --model heston -S 100 -K 100 -T 1 -r 3% --v0 0.04 --kappa 1.5 --theta 0.04 --xi 0.4 --rho -0.6
 
-# Rates: caps, swaptions (Black-76, Bachelier, SABR, Hull-White)
+# Discrete cash dividends (escrowed model; American captures early exercise)
+opal price -i american -t call -S 100 -K 100 -T 1 -r 4% -v 25% --dividends 0.25:1.50,0.75:1.50
+
+# American by Longstaff-Schwartz Monte Carlo (also under --model heston)
+opal price -i american -t put -S 100 -K 100 -T 1 -r 5% -v 25% --method mc
+opal price --model heston -i american -t put -S 100 -K 100 -T 1 -r 5% --v0 0.04 --xi 0.5 --rho -0.7
+
+# Rates: caps, swaptions (Black-76, Bachelier, SABR, Hull-White); --ois-rate
+# switches to multi-curve pricing (forwards off --rate, OIS discounting)
 opal price -i cap -K 4% -T 5 -r 4.2% -v 30% --freq 4
+opal price -i cap -K 4% -T 5 -r 4.2% --ois-rate 3.8% -v 30% --freq 4
 opal price -i swaption -t payer -K 4% -T 1 --tenor 5 -r 4% -v 25%
 opal price -i swaption --model sabr -t payer -K 4% -T 1 --tenor 5 -r 4% --alpha 0.04 --beta 0.5 --nu 0.45 --rho -0.25
 opal price -i zcb-option -t call -K 0.9 -T 1 --tenor 3 -r 5% --mean-rev 0.1 --hw-sigma 0.01
@@ -131,13 +145,30 @@ res.price, res.std_error
 cliquet = opal.mc_custom(lambda path: max(path[-1] / path[0] - 1.0, 0.0) * 100,
                          spot=100, expiry=1.0, rate=0.04, vol=0.2)
 
+# Discrete dividends and American exercise (incl. Longstaff-Schwartz MC)
+opal.bs_discrete_div_price("call", spot=100, strike=100, expiry=1.0, rate=0.04,
+                           vol=0.25, dividends=[(0.25, 1.5), (0.75, 1.5)])
+opal.binomial_discrete_div_price("call", "american", spot=100, strike=100,
+                                 expiry=1.0, rate=0.04, vol=0.25,
+                                 dividends=[(0.5, 3.0)])
+opal.lsmc_price("put", spot=100, strike=100, expiry=1.0, rate=0.06, vol=0.25)
+
 # Stochastic vol and rates
 hp = opal.HestonParams(v0=0.04, kappa=1.5, theta=0.05, xi=0.6, rho=-0.7)
 opal.heston_price("call", spot=100, strike=100, expiry=1.0, rate=0.03, div=0.0, params=hp)
+opal.lsmc_heston_price("put", spot=100, strike=100, expiry=1.0, rate=0.05, div=0.0, params=hp)
 
 curve = opal.DiscountCurve([1, 2, 5, 10], [0.042, 0.040, 0.039, 0.041])
 opal.swaption_price(curve, "payer", strike=0.04, vol=0.25, expiry=1.0, tenor=5.0)
+
+# Multi-curve OIS discounting
+ois = opal.DiscountCurve(0.035)
+opal.swaption_price_ois(ois, curve, "payer", strike=0.04, vol=0.25, expiry=1.0, tenor=5.0)
+opal.cap_floor_price_ois(ois, curve, strike=0.04, vol=0.3, first_fixing=0.25, maturity=5.0)
 ```
+
+Release wheels for Linux/macOS/Windows and a self-contained sdist are built
+by the `Wheels` workflow (cibuildwheel) on version tags.
 
 See `examples/opal_walkthrough.ipynb` for a full Jupyter tour (smiles under
 Heston, SABR cubes, scenario grids) and `examples/pretrade_analysis.py` for a
@@ -162,7 +193,7 @@ see `examples/book.csv`.
 
 ## Validation
 
-`opal_tests` (107 checks) validates against Hull and Haug reference values,
+`opal_tests` (141 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
 model degeneracies (Heston → BS, SABR → flat lognormal), and

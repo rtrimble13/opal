@@ -26,6 +26,7 @@ struct EquityTrade {
     long seed = 42;
     long grid = 400;
 
+    DividendSchedule dividends;
     HestonParams heston{0.04, 1.5, 0.04, 0.3, -0.5};
 
     static EquityTrade from_args(const Args& a) {
@@ -60,6 +61,34 @@ struct EquityTrade {
         t.paths = a.get_int("paths", 100000);
         t.seed = a.get_int("seed", 42);
         t.grid = a.get_int("grid", 400);
+
+        // --dividends t:amount[,t:amount...] (discrete cash dividends)
+        std::string divspec = a.get_str("dividends");
+        if (!divspec.empty()) {
+            std::size_t pos = 0;
+            while (pos < divspec.size()) {
+                std::size_t comma = divspec.find(',', pos);
+                std::string item = divspec.substr(
+                    pos, comma == std::string::npos ? std::string::npos
+                                                    : comma - pos);
+                std::size_t colon = item.find(':');
+                if (colon == std::string::npos)
+                    throw std::runtime_error(
+                        "--dividends: expected t:amount[,t:amount...], got '" +
+                        divspec + "'");
+                t.dividends.push_back({std::stod(item.substr(0, colon)),
+                                       std::stod(item.substr(colon + 1))});
+                if (comma == std::string::npos) break;
+                pos = comma + 1;
+            }
+            if (t.instrument != "european" && t.instrument != "american")
+                throw std::runtime_error(
+                    "--dividends is supported for european and american "
+                    "instruments only");
+            if (t.model != "bsm")
+                throw std::runtime_error(
+                    "--dividends requires the bsm model");
+        }
 
         if (t.model == "heston") {
             t.heston.v0 = a.get_num("v0", t.vol > 0 ? t.vol * t.vol : 0.04);
@@ -124,11 +153,23 @@ struct EquityTrade {
             ExerciseStyle st = (instrument == "american")
                                    ? ExerciseStyle::American
                                    : ExerciseStyle::European;
+            if (!dividends.empty()) {
+                if (st == ExerciseStyle::European && m == "analytic")
+                    return bsm_discrete_div_price(type, s, K, tt, rr, dividends,
+                                                  v, qq);
+                if (m == "lr" || m == "analytic")
+                    return binomial_lr_discrete_div_price(
+                        type, st, s, K, tt, rr, dividends, v,
+                        lattice_steps ? lattice_steps : 501, qq);
+                throw std::runtime_error(
+                    "discrete dividends support --method analytic (european) "
+                    "or lr");
+            }
             if (m == "analytic") {
                 if (st == ExerciseStyle::American)
                     throw std::runtime_error(
                         "no analytic price for american options; use --method "
-                        "lr, crr, trinomial or pde");
+                        "lr, crr, trinomial, pde or mc (Longstaff-Schwartz)");
                 return bsm_price(type, s, K, tt, rr, qq, v);
             }
             if (m == "crr")
@@ -142,8 +183,13 @@ struct EquityTrade {
                                        lattice_steps ? lattice_steps : 400);
             if (m == "pde") return pde_price(type, st, s, K, tt, rr, qq, v, pg);
             if (m == "mc") {
-                if (st == ExerciseStyle::American)
-                    throw std::runtime_error("mc engine is European-style only");
+                if (st == ExerciseStyle::American) {
+                    LsmcConfig lc;
+                    lc.paths = static_cast<std::size_t>(paths);
+                    lc.steps = steps > 0 ? static_cast<int>(steps) : 50;
+                    lc.seed = static_cast<std::uint64_t>(seed);
+                    return lsmc_american(type, s, K, tt, rr, qq, v, lc).price;
+                }
                 cfg.steps = 1;
                 return mc_gbm(vanilla_payoff(type, K), s, tt, rr, qq, v, cfg).price;
             }
@@ -214,6 +260,13 @@ struct EquityTrade {
 private:
     double price_heston(const std::string& m, double s, double rr, double tt,
                         McConfig cfg) const {
+        if (instrument == "american") {
+            LsmcConfig lc;
+            lc.paths = static_cast<std::size_t>(paths);
+            lc.steps = steps > 0 ? static_cast<int>(steps) : 50;
+            lc.seed = static_cast<std::uint64_t>(seed);
+            return lsmc_american_heston(type, s, K, tt, rr, q, heston, lc).price;
+        }
         if (instrument == "european" && m != "mc")
             return heston_price(type, s, K, tt, rr, q, heston);
         cfg.antithetic = false;

@@ -4,6 +4,7 @@
 
 #include "opal/version.hpp"
 
+#include "opal/core/dividends.hpp"
 #include "opal/core/types.hpp"
 
 #include "opal/math/normal.hpp"
@@ -11,6 +12,7 @@
 
 #include "opal/models/black_scholes.hpp"
 #include "opal/models/digital.hpp"
+#include "opal/models/discrete_div.hpp"
 #include "opal/models/barrier.hpp"
 #include "opal/models/asian.hpp"
 #include "opal/models/lookback.hpp"
@@ -18,6 +20,7 @@
 #include "opal/models/sabr.hpp"
 
 #include "opal/engines/lattice.hpp"
+#include "opal/engines/lsmc.hpp"
 #include "opal/engines/pde.hpp"
 #include "opal/engines/monte_carlo.hpp"
 

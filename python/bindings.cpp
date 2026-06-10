@@ -10,6 +10,14 @@ using namespace opal;
 
 namespace {
 
+DividendSchedule parse_dividends(
+    const std::vector<std::pair<double, double>>& divs) {
+    DividendSchedule out;
+    out.reserve(divs.size());
+    for (const auto& [t, amt] : divs) out.push_back({t, amt});
+    return out;
+}
+
 OptionType parse_type(const std::string& s) {
     if (s == "call" || s == "c") return OptionType::Call;
     if (s == "put" || s == "p") return OptionType::Put;
@@ -335,6 +343,72 @@ PYBIND11_MODULE(_opal, m) {
         "The path excludes S0 and the payoff is settled (undiscounted) at "
         "expiry. Slower than the built-in payoffs due to Python callbacks.");
 
+    // ----- discrete cash dividends -------------------------------------------
+    m.def(
+        "bs_discrete_div_price",
+        [](const std::string& t, double S, double K, double T, double r,
+           double vol, const std::vector<std::pair<double, double>>& dividends,
+           double q) {
+            return bsm_discrete_div_price(parse_type(t), S, K, T, r,
+                                          parse_dividends(dividends), vol, q);
+        },
+        py::arg("option_type"), py::arg("spot"), py::arg("strike"),
+        py::arg("expiry"), py::arg("rate"), py::arg("vol"),
+        py::arg("dividends"), py::arg("div") = 0.0,
+        "European option with discrete cash dividends [(time, amount), ...] "
+        "via the escrowed-spot BSM model.");
+
+    m.def(
+        "binomial_discrete_div_price",
+        [](const std::string& t, const std::string& style, double S, double K,
+           double T, double r, double vol,
+           const std::vector<std::pair<double, double>>& dividends, int steps,
+           double q) {
+            return binomial_lr_discrete_div_price(
+                parse_type(t), parse_style(style), S, K, T, r,
+                parse_dividends(dividends), vol, steps, q);
+        },
+        py::arg("option_type"), py::arg("exercise"), py::arg("spot"),
+        py::arg("strike"), py::arg("expiry"), py::arg("rate"), py::arg("vol"),
+        py::arg("dividends"), py::arg("steps") = 501, py::arg("div") = 0.0,
+        "American/European option with discrete cash dividends on a "
+        "Leisen-Reimer tree (escrowed spot, dividend add-back at exercise).");
+
+    // ----- Longstaff-Schwartz American Monte Carlo ----------------------------
+    m.def(
+        "lsmc_price",
+        [](const std::string& t, double S, double K, double T, double r,
+           double vol, double q, std::size_t paths, int steps,
+           std::uint64_t seed) {
+            LsmcConfig cfg;
+            cfg.paths = paths;
+            cfg.steps = steps;
+            cfg.seed = seed;
+            return lsmc_american(parse_type(t), S, K, T, r, q, vol, cfg);
+        },
+        py::arg("option_type"), py::arg("spot"), py::arg("strike"),
+        py::arg("expiry"), py::arg("rate"), py::arg("vol"), py::arg("div") = 0.0,
+        py::arg("paths") = 50000, py::arg("steps") = 50, py::arg("seed") = 42,
+        "American option under GBM via Longstaff-Schwartz least-squares "
+        "Monte Carlo. Returns McResult (slightly low-biased estimator).");
+
+    m.def(
+        "lsmc_heston_price",
+        [](const std::string& t, double S, double K, double T, double r,
+           double q, const HestonParams& p, std::size_t paths, int steps,
+           std::uint64_t seed) {
+            LsmcConfig cfg;
+            cfg.paths = paths;
+            cfg.steps = steps;
+            cfg.seed = seed;
+            return lsmc_american_heston(parse_type(t), S, K, T, r, q, p, cfg);
+        },
+        py::arg("option_type"), py::arg("spot"), py::arg("strike"),
+        py::arg("expiry"), py::arg("rate"), py::arg("div"), py::arg("params"),
+        py::arg("paths") = 50000, py::arg("steps") = 50, py::arg("seed") = 42,
+        "American option under Heston dynamics via Longstaff-Schwartz "
+        "(variance enters the regression basis).");
+
     // ----- stochastic vol ---------------------------------------------------
     m.def(
         "heston_price",
@@ -391,6 +465,23 @@ PYBIND11_MODULE(_opal, m) {
         py::arg("is_cap") = true, py::arg("vol_type") = "lognormal");
 
     m.def(
+        "cap_floor_price_ois",
+        [](const DiscountCurve& discount_curve, const DiscountCurve& forward_curve,
+           double K, double vol, double first_fixing, double maturity, double tau,
+           bool is_cap, const std::string& vol_type) {
+            return cap_floor_price(discount_curve, forward_curve, K, vol,
+                                   first_fixing, maturity, tau, is_cap,
+                                   vol_type == "normal" ? RateVolType::Normal
+                                                        : RateVolType::Lognormal);
+        },
+        py::arg("discount_curve"), py::arg("forward_curve"), py::arg("strike"),
+        py::arg("vol"), py::arg("first_fixing"), py::arg("maturity"),
+        py::arg("tau") = 0.25, py::arg("is_cap") = true,
+        py::arg("vol_type") = "lognormal",
+        "Multi-curve cap/floor: forwards off forward_curve, cashflows "
+        "discounted on discount_curve (OIS).");
+
+    m.def(
         "swaption_price",
         [](const DiscountCurve& curve, const std::string& style, double K,
            double vol, double expiry, double tenor, double pay_freq,
@@ -404,6 +495,24 @@ PYBIND11_MODULE(_opal, m) {
         py::arg("curve"), py::arg("style"), py::arg("strike"), py::arg("vol"),
         py::arg("expiry"), py::arg("tenor"), py::arg("pay_freq") = 2.0,
         py::arg("vol_type") = "lognormal");
+
+    m.def(
+        "swaption_price_ois",
+        [](const DiscountCurve& discount_curve, const DiscountCurve& forward_curve,
+           const std::string& style, double K, double vol, double expiry,
+           double tenor, double pay_freq, const std::string& vol_type) {
+            SwaptionType st = (style == "receiver") ? SwaptionType::Receiver
+                                                     : SwaptionType::Payer;
+            return swaption_price(discount_curve, forward_curve, st, K, vol,
+                                  expiry, tenor, pay_freq,
+                                  vol_type == "normal" ? RateVolType::Normal
+                                                       : RateVolType::Lognormal);
+        },
+        py::arg("discount_curve"), py::arg("forward_curve"), py::arg("style"),
+        py::arg("strike"), py::arg("vol"), py::arg("expiry"), py::arg("tenor"),
+        py::arg("pay_freq") = 2.0, py::arg("vol_type") = "lognormal",
+        "Multi-curve European swaption: OIS-discounted annuity, par swap "
+        "rate from the projection curve.");
 
     m.def(
         "sabr_swaption_price",

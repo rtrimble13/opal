@@ -173,6 +173,85 @@ TEST_CASE(monte_carlo_heston) {
     CHECK_CLOSE(mc.price, semi, 5.0 * mc.std_error + 0.05);
 }
 
+TEST_CASE(discrete_dividends) {
+    double S = 100, K = 100, T = 1.0, r = 0.05, sig = 0.25;
+    // Empty schedule reduces to plain BSM / plain LR tree.
+    DividendSchedule none;
+    CHECK_CLOSE(bsm_discrete_div_price(OptionType::Call, S, K, T, r, none, sig),
+                bsm_price(OptionType::Call, S, K, T, r, 0.0, sig), 1e-12);
+    CHECK_CLOSE(binomial_lr_discrete_div_price(OptionType::Put,
+                                               ExerciseStyle::American, S, K, T,
+                                               r, none, sig, 501),
+                binomial_lr_price(OptionType::Put, ExerciseStyle::American, S, K,
+                                  T, r, 0.0, sig, 501),
+                1e-10);
+    // European escrowed model: spot reduced by PV of dividends.
+    DividendSchedule divs{{0.3, 2.0}, {0.8, 2.0}};
+    double S_esc = S - 2.0 * std::exp(-r * 0.3) - 2.0 * std::exp(-r * 0.8);
+    CHECK_CLOSE(bsm_discrete_div_price(OptionType::Call, S, K, T, r, divs, sig),
+                bsm_price(OptionType::Call, S_esc, K, T, r, 0.0, sig), 1e-12);
+    // Dividends cheapen calls and enrich puts.
+    CHECK_TRUE(bsm_discrete_div_price(OptionType::Call, S, K, T, r, divs, sig) <
+               bsm_price(OptionType::Call, S, K, T, r, 0.0, sig));
+    CHECK_TRUE(bsm_discrete_div_price(OptionType::Put, S, K, T, r, divs, sig) >
+               bsm_price(OptionType::Put, S, K, T, r, 0.0, sig));
+    // A large dividend makes early exercise of the American call valuable.
+    DividendSchedule big{{0.5, 8.0}};
+    double am_call = binomial_lr_discrete_div_price(
+        OptionType::Call, ExerciseStyle::American, S, K, T, r, big, sig, 501);
+    double eu_call =
+        bsm_discrete_div_price(OptionType::Call, S, K, T, r, big, sig);
+    CHECK_TRUE(am_call > eu_call + 0.05);
+    // American put premium survives dividends.
+    double am_put = binomial_lr_discrete_div_price(
+        OptionType::Put, ExerciseStyle::American, S, K, T, r, divs, sig, 501);
+    double eu_put = bsm_discrete_div_price(OptionType::Put, S, K, T, r, divs, sig);
+    CHECK_TRUE(am_put > eu_put);
+    // PV of dividends exceeding spot must throw.
+    DividendSchedule absurd{{0.5, 150.0}};
+    CHECK_THROWS(bsm_discrete_div_price(OptionType::Call, S, K, T, r, absurd, sig));
+}
+
+TEST_CASE(lsmc_american_gbm) {
+    double S = 100, K = 100, T = 1.0, r = 0.06, q = 0.0, sig = 0.25;
+    LsmcConfig cfg;
+    cfg.paths = 60000;
+    cfg.steps = 50;
+    // American put: LSMC tracks the Leisen-Reimer benchmark (LSMC is a
+    // slightly low-biased estimator).
+    double lr = binomial_lr_price(OptionType::Put, ExerciseStyle::American, S, K,
+                                  T, r, q, sig, 1001);
+    McResult lsmc = lsmc_american(OptionType::Put, S, K, T, r, q, sig, cfg);
+    CHECK_TRUE(lsmc.price < lr + 4.0 * lsmc.std_error);
+    CHECK_CLOSE(lsmc.price, lr, 0.10);
+    // American call without dividends: no early exercise, equals European.
+    double eu_call = bsm_price(OptionType::Call, S, K, T, r, q, sig);
+    McResult lsmc_call = lsmc_american(OptionType::Call, S, K, T, r, q, sig, cfg);
+    CHECK_CLOSE(lsmc_call.price, eu_call, 4.0 * lsmc_call.std_error + 0.10);
+    // Deep ITM exercise floor.
+    McResult deep = lsmc_american(OptionType::Put, 40, 100, T, 0.08, 0.0, 0.2, cfg);
+    CHECK_TRUE(deep.price >= 60.0 - 1e-9);
+}
+
+TEST_CASE(lsmc_american_heston) {
+    double S = 100, K = 100, T = 1.0, r = 0.05, q = 0.0;
+    LsmcConfig cfg;
+    cfg.paths = 40000;
+    cfg.steps = 50;
+    // Degenerate Heston (xi ~ 0, v0 = theta) matches GBM LSMC at sigma=sqrt(v0).
+    HestonParams flat{0.0625, 2.0, 0.0625, 1e-4, 0.0};
+    McResult hes = lsmc_american_heston(OptionType::Put, S, K, T, r, q, flat, cfg);
+    double lr = binomial_lr_price(OptionType::Put, ExerciseStyle::American, S, K,
+                                  T, r, q, 0.25, 1001);
+    CHECK_CLOSE(hes.price, lr, 0.15);
+    // Full Heston: American put carries an early exercise premium over the
+    // semi-analytic European price.
+    HestonParams hp{0.04, 1.5, 0.05, 0.5, -0.7};
+    double eu = heston_price(OptionType::Put, S, K, T, r, q, hp);
+    McResult am = lsmc_american_heston(OptionType::Put, S, K, T, r, q, hp, cfg);
+    CHECK_TRUE(am.price > eu);
+}
+
 TEST_CASE(numerical_greeks_match_analytic) {
     double S = 100, K = 100, T = 1.0, r = 0.05, q = 0.02, sig = 0.25;
     Greeks ana = bsm_greeks(OptionType::Call, S, K, T, r, q, sig);

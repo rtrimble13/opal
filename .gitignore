@@ -71,3 +71,6 @@ python/opal/_opal*.so
 python/build/
 *.egg-info/
 __pycache__/
+python/include/
+python/dist/
+wheelhouse/

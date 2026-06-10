@@ -20,31 +20,48 @@ struct SwaptionResult {
 };
 
 namespace detail {
-inline SwaptionResult swap_metrics(const DiscountCurve& curve, double expiry,
-                                   double tenor, double pay_freq) {
+/// Multi-curve swap metrics: the annuity is discounted on the OIS curve and
+/// the par swap rate equates the OIS-discounted floating leg (forwards from
+/// the projection curve) to the fixed leg. With a single curve this reduces
+/// to the textbook (P(T0) - P(Tn)) / annuity.
+inline SwaptionResult swap_metrics(const DiscountCurve& discount_curve,
+                                   const DiscountCurve& forward_curve,
+                                   double expiry, double tenor, double pay_freq) {
     require(expiry > 0.0 && tenor > 0.0, "swaption: expiry and tenor must be > 0");
     require(pay_freq > 0.0, "swaption: payment frequency must be positive");
     double tau = 1.0 / pay_freq;
     double annuity = 0.0;
-    for (double t = expiry + tau; t <= expiry + tenor + 1e-10; t += tau)
-        annuity += tau * curve.discount(t);
-    double swap_rate =
-        (curve.discount(expiry) - curve.discount(expiry + tenor)) / annuity;
+    double float_pv = 0.0;
+    for (double t = expiry + tau; t <= expiry + tenor + 1e-10; t += tau) {
+        double df = discount_curve.discount(t);
+        annuity += tau * df;
+        float_pv += tau * df * forward_curve.forward_rate(t - tau, t);
+    }
     SwaptionResult res;
     res.annuity = annuity;
-    res.forward_swap_rate = swap_rate;
+    res.forward_swap_rate = float_pv / annuity;
     return res;
+}
+
+inline SwaptionResult swap_metrics(const DiscountCurve& curve, double expiry,
+                                   double tenor, double pay_freq) {
+    return swap_metrics(curve, curve, expiry, tenor, pay_freq);
 }
 }  // namespace detail
 
 /// European swaption: option expiring at `expiry` (years) to enter a swap of
 /// `tenor` years with fixed rate K, `pay_freq` payments per year, unit
 /// notional. Volatility is Black (lognormal) or normal per vol_type.
-inline SwaptionResult swaption_price(const DiscountCurve& curve, SwaptionType st,
-                                     double K, double vol, double expiry,
-                                     double tenor, double pay_freq = 2.0,
+/// Multi-curve form: discounting on `discount_curve` (OIS), forwards from
+/// `forward_curve`.
+inline SwaptionResult swaption_price(const DiscountCurve& discount_curve,
+                                     const DiscountCurve& forward_curve,
+                                     SwaptionType st, double K, double vol,
+                                     double expiry, double tenor,
+                                     double pay_freq = 2.0,
                                      RateVolType vol_type = RateVolType::Lognormal) {
-    SwaptionResult res = detail::swap_metrics(curve, expiry, tenor, pay_freq);
+    SwaptionResult res =
+        detail::swap_metrics(discount_curve, forward_curve, expiry, tenor, pay_freq);
     OptionType type =
         (st == SwaptionType::Payer) ? OptionType::Call : OptionType::Put;
     double undiscounted;
@@ -57,6 +74,15 @@ inline SwaptionResult swaption_price(const DiscountCurve& curve, SwaptionType st
     }
     res.price = res.annuity * undiscounted;
     return res;
+}
+
+/// Single-curve convenience: projection and discounting on the same curve.
+inline SwaptionResult swaption_price(const DiscountCurve& curve, SwaptionType st,
+                                     double K, double vol, double expiry,
+                                     double tenor, double pay_freq = 2.0,
+                                     RateVolType vol_type = RateVolType::Lognormal) {
+    return swaption_price(curve, curve, st, K, vol, expiry, tenor, pay_freq,
+                          vol_type);
 }
 
 /// European swaption priced with a SABR vol smile on the swap rate.

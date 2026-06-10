@@ -114,6 +114,58 @@ def test_rates():
     assert zc.discount(2.0) < zc.discount(1.0)
 
 
+def test_discrete_dividends():
+    divs = [(0.3, 2.0), (0.8, 2.0)]
+    base = dict(spot=100, strike=100, expiry=1.0, rate=0.05, vol=0.25)
+    eu = opal.bs_discrete_div_price("call", dividends=divs, **base)
+    plain = opal.bs_price("call", **base)
+    assert eu < plain  # dividends cheapen calls
+    # Empty schedule reduces to plain BSM.
+    approx(opal.bs_discrete_div_price("call", dividends=[], **base), plain, 1e-12)
+    # American call gains early-exercise value before a large dividend.
+    am = opal.binomial_discrete_div_price("call", "american",
+                                          dividends=[(0.5, 8.0)], **base)
+    eu_big = opal.bs_discrete_div_price("call", dividends=[(0.5, 8.0)], **base)
+    assert am > eu_big
+
+
+def test_lsmc():
+    base = dict(spot=100, strike=100, expiry=1.0, rate=0.06, vol=0.25)
+    lr = opal.binomial_price("put", "american", steps=1001, **base)
+    res = opal.lsmc_price("put", paths=40000, steps=50, **base)
+    assert abs(res.price - lr) < 0.12
+    assert res.std_error < 0.1
+    # Heston LSMC: early exercise premium over the semi-analytic European.
+    hp = opal.HestonParams(v0=0.04, kappa=1.5, theta=0.05, xi=0.5, rho=-0.7)
+    eu = opal.heston_price("put", spot=100, strike=100, expiry=1.0, rate=0.05,
+                           div=0.0, params=hp)
+    am = opal.lsmc_heston_price("put", spot=100, strike=100, expiry=1.0,
+                                rate=0.05, div=0.0, params=hp, paths=30000)
+    assert am.price > eu
+
+
+def test_multi_curve_ois():
+    ois = opal.DiscountCurve(0.035)
+    proj = opal.DiscountCurve(0.040)
+    # Identical curves collapse to the single-curve price.
+    single = opal.cap_floor_price(proj, strike=0.04, vol=0.25, first_fixing=0.25,
+                                  maturity=3.0, tau=0.25)
+    dual_same = opal.cap_floor_price_ois(proj, proj, strike=0.04, vol=0.25,
+                                         first_fixing=0.25, maturity=3.0,
+                                         tau=0.25)
+    approx(dual_same.price, single.price, 1e-15)
+    # OIS discounting (lower rate) lifts the PV at unchanged forwards.
+    dual = opal.cap_floor_price_ois(ois, proj, strike=0.04, vol=0.25,
+                                    first_fixing=0.25, maturity=3.0, tau=0.25)
+    assert dual.price > single.price
+    sw = opal.swaption_price_ois(ois, proj, "payer", strike=0.04, vol=0.3,
+                                 expiry=1.0, tenor=5.0)
+    sw_single = opal.swaption_price(proj, "payer", strike=0.04, vol=0.3,
+                                    expiry=1.0, tenor=5.0)
+    assert sw.annuity > sw_single.annuity
+    assert abs(sw.forward_swap_rate - sw_single.forward_swap_rate) < 5e-4
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

@@ -3,9 +3,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <functional>
 #include <stdexcept>
 #include <utility>
+#include <vector>
 
 namespace opal::math {
 
@@ -108,6 +110,36 @@ inline double integrate(const std::function<double(double)>& f, double a, double
     double fa = f(a), fm = f(m), fb = f(b);
     double whole = (b - a) / 6.0 * (fa + 4.0 * fm + fb);
     return detail::simpson_step(f, a, b, fa, fm, fb, whole, tol, max_depth);
+}
+
+/// Solve the dense linear system A x = b in place via Gaussian elimination
+/// with partial pivoting. A is row-major n x n. Returns false if singular.
+inline bool solve_linear(std::vector<double>& A, std::vector<double>& b,
+                         std::size_t n) {
+    for (std::size_t col = 0; col < n; ++col) {
+        std::size_t piv = col;
+        for (std::size_t row = col + 1; row < n; ++row)
+            if (std::fabs(A[row * n + col]) > std::fabs(A[piv * n + col]))
+                piv = row;
+        if (std::fabs(A[piv * n + col]) < 1e-14) return false;
+        if (piv != col) {
+            for (std::size_t k = 0; k < n; ++k)
+                std::swap(A[col * n + k], A[piv * n + k]);
+            std::swap(b[col], b[piv]);
+        }
+        for (std::size_t row = col + 1; row < n; ++row) {
+            double f = A[row * n + col] / A[col * n + col];
+            if (f == 0.0) continue;
+            for (std::size_t k = col; k < n; ++k) A[row * n + k] -= f * A[col * n + k];
+            b[row] -= f * b[col];
+        }
+    }
+    for (std::size_t row = n; row-- > 0;) {
+        double s = b[row];
+        for (std::size_t k = row + 1; k < n; ++k) s -= A[row * n + k] * b[k];
+        b[row] = s / A[row * n + row];
+    }
+    return true;
 }
 
 }  // namespace opal::math

@@ -18,7 +18,7 @@ namespace opal {
 
 struct LsmcConfig {
     std::size_t paths = 50000;
-    int steps = 50;          // exercise opportunities per year of expiry budget
+    int steps = 50;          // total exercise opportunities over the option life
     std::uint64_t seed = 42;
 };
 

@@ -11,7 +11,7 @@ namespace opal {
 
 struct Dividend {
     double time;    // payment time in years (> 0)
-    double amount;  // cash amount per share (> 0)
+    double amount;  // cash amount per share (>= 0; zero is a no-op)
 };
 
 using DividendSchedule = std::vector<Dividend>;

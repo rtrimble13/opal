@@ -1,0 +1,184 @@
+# Opal
+
+Institutional-grade option pricing and risk analytics: a header-only C++17
+library, a command line tool for pre-trade analysis, position monitoring and
+risk management, and a Python API for scripting and Jupyter workflows.
+
+## Capabilities
+
+**Models**
+
+| Model | Use |
+|---|---|
+| Black–Scholes–Merton | Equity options with continuous dividend yield, full analytic greeks (incl. vanna, volga, charm) |
+| Black-76 | Options on forwards/futures, caps/floors, swaptions |
+| Bachelier (normal) | Rates options in low/negative rate regimes |
+| Heston | Stochastic volatility, semi-analytic via characteristic function ("little trap" formulation) + Monte Carlo for exotics |
+| SABR (Hagan 2002) | Vol smile for swaptions and rate options, lognormal and normal vols |
+| Hull–White 1F | Bond options, caplets/floorlets, caps/floors on a fitted curve |
+
+**Payoffs**
+
+European and American vanillas; cash- and asset-or-nothing digitals; gap
+options; all eight single-barrier variants (up/down × in/out × call/put) with
+rebates; arithmetic and geometric Asians (fixed and floating strike,
+continuous and discrete monitoring); fixed- and floating-strike lookbacks
+(including seasoned positions via running extrema); caps, floors, caplets,
+floorlets; European payer/receiver swaptions; zero-coupon bond options.
+Arbitrary path-dependent payoffs via the Monte Carlo engines (including from
+Python).
+
+**Engines**
+
+| Engine | Notes |
+|---|---|
+| Closed form | Reiner–Rubinstein barriers, Goldman–Sosin–Gatto / Conze–Viswanathan lookbacks, Turnbull–Wakeman Asians, exact geometric Asians |
+| Leisen–Reimer binomial | Smooth O(1/n²) convergence; default for American exercise |
+| CRR binomial, trinomial | Cross-checking and pedagogy |
+| Crank–Nicolson PDE | Rannacher start-up, American exercise, knock-out barriers as boundary conditions |
+| Monte Carlo | Antithetic variates, geometric-Asian control variate, standard errors reported, Heston full-truncation Euler |
+
+**Analytics**: implied vol (Newton + Brent safeguarded) for BSM/Black-76/
+Bachelier, analytic and bump-and-revalue greeks, scenario grids, option
+chains, portfolio aggregation.
+
+## Build
+
+Requires CMake ≥ 3.16 and a C++17 compiler. The library itself is
+header-only (`#include "opal/opal.hpp"`).
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+./build/opal_tests          # unit tests
+./build/opal help           # the CLI
+```
+
+## Command line
+
+```text
+opal <command> [options]
+  price | greeks | implied | chain | scenario | portfolio
+```
+
+```sh
+# Vanilla pricing and a full risk report
+opal price  -S 100 -K 105 -T 0.5 -r 4% -v 22% -t call
+opal greeks -S 100 -K 100 -T 0.5 -r 5% -v 20%
+
+# American, barrier, Asian, Heston
+opal price -i american -t put -S 50 -K 55 -T 1 -r 3% -q 1% -v 30%
+opal price -i barrier-up-out -S 100 -K 100 -H 120 -T 1 -r 5% -v 25%
+opal price -i asian-arith -S 100 -K 100 -T 1 -r 5% -v 30% --paths 200000
+opal price --model heston -S 100 -K 100 -T 1 -r 3% --v0 0.04 --kappa 1.5 --theta 0.04 --xi 0.4 --rho -0.6
+
+# Rates: caps, swaptions (Black-76, Bachelier, SABR, Hull-White)
+opal price -i cap -K 4% -T 5 -r 4.2% -v 30% --freq 4
+opal price -i swaption -t payer -K 4% -T 1 --tenor 5 -r 4% -v 25%
+opal price -i swaption --model sabr -t payer -K 4% -T 1 --tenor 5 -r 4% --alpha 0.04 --beta 0.5 --nu 0.45 --rho -0.25
+opal price -i zcb-option -t call -K 0.9 -T 1 --tenor 3 -r 5% --mean-rev 0.1 --hw-sigma 0.01
+
+# Market-implied vol, chains, scenarios, portfolio risk
+opal implied -S 100 -K 105 -T 0.5 -r 4% --price 3.85
+opal chain -S 100 -T 0.5 -r 4% -v 25% --strikes 80:120:5
+opal scenario -S 100 -K 100 -T 0.5 -r 4% -v 25% --spot-range -20:20:5 --vol-range -10:10:5
+opal portfolio --file examples/book.csv
+```
+
+Expiries accept year fractions (`-T 0.5`) or dates (`-T 2026-12-18`,
+ACT/365F). Rates accept decimals or percentages (`-r 0.04` ≡ `-r 4%`).
+Every command takes `-o json` (and `-o csv` for tabular output) for piping
+into other systems. Numerical method selection is automatic but can be forced
+with `--method analytic|lr|crr|trinomial|pde|mc`.
+
+Example scenario output (P&L of an ATM call, spot × vol grid):
+
+```text
+P&L vs base price 8.0080 (rows: spot, cols: vol)
+spot\vol    20.0%    25.0%    30.0%
+-----------------------------------
+   90.00  -5.7836  -4.6419  -3.4454
+  100.00  -1.3809   0.0000   1.3824
+  110.00   5.6875   6.8072   8.0283
+```
+
+## Python API
+
+```sh
+pip install ./python        # builds the pybind11 extension
+```
+
+```python
+import opal
+
+# Pricing and greeks
+opal.bs_price("call", spot=100, strike=105, expiry=0.5, rate=0.04, vol=0.22)
+g = opal.bs_greeks("put", spot=100, strike=100, expiry=1.0, rate=0.05, vol=0.2)
+g.delta, g.vega / 100, g.theta / 365
+
+# Implied vol, exotics, engines
+opal.implied_vol("call", price=3.85, spot=100, strike=105, expiry=0.5, rate=0.04)
+opal.barrier_price("call", "up-out", spot=100, strike=100, barrier=120,
+                   expiry=1.0, rate=0.05, vol=0.25)
+opal.binomial_price("put", "american", spot=50, strike=55, expiry=1.0,
+                    rate=0.03, vol=0.3)
+
+# Monte Carlo with standard errors — including custom Python payoffs
+res = opal.mc_price("call", payoff="asian-arith", spot=100, strike=100,
+                    expiry=1.0, rate=0.05, vol=0.3, paths=200000)
+res.price, res.std_error
+
+cliquet = opal.mc_custom(lambda path: max(path[-1] / path[0] - 1.0, 0.0) * 100,
+                         spot=100, expiry=1.0, rate=0.04, vol=0.2)
+
+# Stochastic vol and rates
+hp = opal.HestonParams(v0=0.04, kappa=1.5, theta=0.05, xi=0.6, rho=-0.7)
+opal.heston_price("call", spot=100, strike=100, expiry=1.0, rate=0.03, div=0.0, params=hp)
+
+curve = opal.DiscountCurve([1, 2, 5, 10], [0.042, 0.040, 0.039, 0.041])
+opal.swaption_price(curve, "payer", strike=0.04, vol=0.25, expiry=1.0, tenor=5.0)
+```
+
+See `examples/opal_walkthrough.ipynb` for a full Jupyter tour (smiles under
+Heston, SABR cubes, scenario grids) and `examples/pretrade_analysis.py` for a
+scripted pre-trade workflow.
+
+## Portfolio files
+
+`opal portfolio --file book.csv` consumes a CSV with columns
+`instrument,type,quantity,spot,strike,vol,rate,div,expiry[,barrier,rebate,method]`
+and reports per-position and aggregated NPV, delta, gamma, vega and theta —
+see `examples/book.csv`.
+
+## Conventions
+
+- Rates and dividend yields are continuously compounded decimals.
+- Library-level greeks are per unit of the underlying variable; the CLI
+  reports trader conventions (vega per vol point, theta per calendar day,
+  rho per 1% rate move).
+- Barrier closed forms assume continuous monitoring; the Monte Carlo engine
+  monitors discretely at each step (worth more for knock-outs) — use it to
+  quantify discrete-monitoring premia.
+
+## Validation
+
+`opal_tests` (107 checks) validates against Hull and Haug reference values,
+no-arbitrage identities (put-call parity, digital parity, barrier in/out
+parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
+model degeneracies (Heston → BS, SABR → flat lognormal), and
+dense-monitoring Monte Carlo for the exotic closed forms. The Python suite
+(`python/tests/test_api.py`) re-checks the bindings end to end.
+
+## Repository layout
+
+```
+include/opal/      header-only C++ library (models, engines, rates, analytics)
+cli/               the opal command line tool
+python/            pybind11 bindings + setuptools package
+tests/             C++ unit tests (custom micro-framework, no dependencies)
+examples/          sample portfolio, pre-trade script, Jupyter notebook
+```
+
+## License
+
+MIT — see [LICENSE](LICENSE).

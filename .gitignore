@@ -67,3 +67,7 @@ vcpkg_installed/
 # test output & cache
 Testing/
 .cache/
+python/opal/_opal*.so
+python/build/
+*.egg-info/
+__pycache__/

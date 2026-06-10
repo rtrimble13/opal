@@ -1,0 +1,6 @@
+#pragma once
+
+#define OPAL_VERSION_MAJOR 0
+#define OPAL_VERSION_MINOR 1
+#define OPAL_VERSION_PATCH 0
+#define OPAL_VERSION_STRING "0.1.0"

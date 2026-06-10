@@ -1,9 +1,15 @@
 """Python API smoke and consistency tests (runnable with pytest or directly)."""
+import glob
 import math
-import sys
 import os
+import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Prefer the in-tree package only when the extension has been built in place
+# (python setup.py build_ext --inplace); otherwise use the installed package.
+_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+if glob.glob(os.path.join(_src, "opal", "_opal*.so")) or glob.glob(
+        os.path.join(_src, "opal", "_opal*.pyd")):
+    sys.path.insert(0, _src)
 
 import opal
 

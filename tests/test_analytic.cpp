@@ -311,6 +311,11 @@ TEST_CASE(two_asset_rainbow_and_exchange) {
     double corr_lim = two_asset_correlation_price(OptionType::Call, S1, S2, 1e-8, K,
                                                   T, r, q1, q2, sig1, sig2, rho);
     CHECK_CLOSE(corr_lim, bsm_price(OptionType::Call, S2, K, T, r, q2, sig2), 1e-6);
+    // Correlation put with gate K1 -> 0: the condition S1 < K1 never holds, so
+    // it is worthless.
+    double pcorr_lim = two_asset_correlation_price(OptionType::Put, S1, S2, 1e-8, K,
+                                                   T, r, q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(pcorr_lim, 0.0, 1e-7);
 
     // Monte Carlo cross-check (fixed seed -> deterministic) of the absolute
     // levels for max/min/exchange and the correlation option.
@@ -320,7 +325,7 @@ TEST_CASE(two_asset_rainbow_and_exchange) {
     double K1c = 90.0;  // correlation gate on S1
     double d1 = (r - q1 - 0.5 * sig1 * sig1) * T, d2 = (r - q2 - 0.5 * sig2 * sig2) * T;
     double w1 = sig1 * std::sqrt(T), w2 = sig2 * std::sqrt(T);
-    double sMax = 0, sMin = 0, sExch = 0, sCorr = 0;
+    double sMax = 0, sMin = 0, sExch = 0, sCorr = 0, sCorrP = 0;
     for (long n = 0; n < N; ++n) {
         double z1 = nd(rng);
         double z2 = rho * z1 + std::sqrt(1.0 - rho * rho) * nd(rng);
@@ -330,6 +335,7 @@ TEST_CASE(two_asset_rainbow_and_exchange) {
         sMin += std::max(std::min(s1, s2) - K, 0.0);
         sExch += std::max(s1 - s2, 0.0);
         if (s1 > K1c) sCorr += std::max(s2 - K, 0.0);
+        if (s1 < K1c) sCorrP += std::max(K - s2, 0.0);
     }
     double disc = std::exp(-r * T);
     CHECK_CLOSE(disc * sMax / N, cmax, 0.08);
@@ -338,6 +344,9 @@ TEST_CASE(two_asset_rainbow_and_exchange) {
     double corr = two_asset_correlation_price(OptionType::Call, S1, S2, K1c, K, T, r,
                                               q1, q2, sig1, sig2, rho);
     CHECK_CLOSE(disc * sCorr / N, corr, 0.08);
+    double corr_put = two_asset_correlation_price(OptionType::Put, S1, S2, K1c, K, T,
+                                                  r, q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(disc * sCorrP / N, corr_put, 0.08);
 }
 
 TEST_CASE(compound_geske) {
@@ -366,6 +375,31 @@ TEST_CASE(compound_geske) {
     double coc0 = compound_option_price(OptionType::Call, OptionType::Call, S, 1e-8,
                                         K2, t1, T2, r, q, sig);
     CHECK_CLOSE(coc0, c, 1e-5);
+
+    // Deeper-ITM inner put whose value at the spot exceeds K1: exercises the
+    // root-bracket expansion (the naive [lo, spot] bracket would have failed).
+    // Outer put-call parity must still hold exactly.
+    double Sl = 80.0;  // inner put (K2=100) worth ~20 > K1 = 6
+    double cop2 = compound_option_price(OptionType::Call, OptionType::Put, Sl, K1, K2,
+                                        t1, T2, r, q, sig);
+    double pop2 = compound_option_price(OptionType::Put, OptionType::Put, Sl, K1, K2,
+                                        t1, T2, r, q, sig);
+    double p2 = gbs_price(OptionType::Put, Sl, K2, T2, r, b, sig);
+    CHECK_CLOSE(cop2 - pop2, p2 - K1 * std::exp(-r * t1), 1e-9);
+
+    // Never-bracketed regime: K1 exceeds the inner put's maximum value
+    // (K2 e^{-r tau}). The call-on-put is worthless; the put-on-put is always
+    // exercised, worth K1 e^{-r t1} minus today's inner put.
+    double bigK1 = 200.0;
+    double cop3 = compound_option_price(OptionType::Call, OptionType::Put, S, bigK1,
+                                        K2, t1, T2, r, q, sig);
+    double pop3 = compound_option_price(OptionType::Put, OptionType::Put, S, bigK1,
+                                        K2, t1, T2, r, q, sig);
+    CHECK_CLOSE(cop3, 0.0, 1e-12);
+    CHECK_CLOSE(pop3,
+                bigK1 * std::exp(-r * t1) - gbs_price(OptionType::Put, S, K2, T2, r,
+                                                      b, sig),
+                1e-9);
 
     // Monte Carlo cross-check: value the inner option at t1, pay max(.-K1,0).
     std::mt19937_64 rng(99);

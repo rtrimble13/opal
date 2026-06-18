@@ -38,24 +38,26 @@ inline double compound_option_price(OptionType outer, OptionType inner, double S
     };
 
     // Critical asset price I at t1 where the inner option is worth exactly K1
-    // (the outer exercise boundary). For an inner call the value is increasing
-    // in x (from 0 to +inf); for an inner put it is decreasing (from
-    // K2 e^{-r tau} down to 0). If K1 lies outside that range the outer option
-    // is never exercised and the compound is worthless.
-    double i_star;
-    {
-        auto f = [&](double x) { return inner_value(x) - K1; };
-        double lo = 1e-8 * S, hi = S;
-        if (inner == OptionType::Call) {
-            while (f(hi) < 0.0 && hi < 1e12 * S) hi *= 2.0;  // grow to bracket
-            if (f(hi) < 0.0) return 0.0;                     // never exercised
-        } else {
-            // Inner put: max value at x -> 0 is K2 e^{-r tau}.
-            if (K2 * std::exp(-r * tau) <= K1) return 0.0;   // never exercised
-            while (f(lo) < 0.0 && lo > 1e-300) lo *= 0.5;
-        }
-        i_star = math::brent(f, lo, hi);
+    // (the outer exercise boundary). The inner value is monotone in x
+    // (increasing 0->inf for a call, decreasing K2 e^{-r tau}->0 for a put), so
+    // bracket the root generically by expanding until the endpoints straddle
+    // it. The only unbracketable case is "inner value < K1 for every x" (the
+    // inner is never worth the outer strike): then the outer call is never
+    // exercised (worthless) while the outer put is *always* exercised -- the
+    // holder sells the inner for K1 -- worth K1 e^{-r t1} minus today's inner
+    // value. (Both limits keep outer put-call parity exact.)
+    auto f = [&](double x) { return inner_value(x) - K1; };
+    double lo = 1e-8 * S, hi = S;
+    double f_lo = f(lo), f_hi = f(hi);
+    while (std::signbit(f_hi) == std::signbit(f_lo) && hi < 1e12 * S) {
+        hi *= 2.0;
+        f_hi = f(hi);
     }
+    if (std::signbit(f_hi) == std::signbit(f_lo)) {  // no boundary in range
+        if (outer == OptionType::Call) return 0.0;
+        return K1 * std::exp(-r * t1) - gbs_price(inner, S, K2, T2, r, b, sig);
+    }
+    double i_star = math::brent(f, lo, hi);
 
     double sqrt1 = std::sqrt(t1), sqrt2 = std::sqrt(T2);
     double rho = sqrt1 / sqrt2;

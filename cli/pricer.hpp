@@ -96,6 +96,11 @@ struct EquityTrade {
             t.heston.theta = a.get_num("theta", t.heston.v0);
             t.heston.xi = a.get_num("xi", 0.3);
             t.heston.rho = a.get_num("rho", -0.5);
+            // Anchor a base vol level for vol-bump based tooling (numerical
+            // greeks, scenario grid). When --vol is omitted under Heston we use
+            // the initial instantaneous vol sqrt(v0) so a vega/scenario bump has
+            // a well-defined point to perturb around.
+            if (t.vol <= 0.0) t.vol = std::sqrt(t.heston.v0);
         }
         if (t.instrument.rfind("barrier", 0) == 0 && t.barrier <= 0.0)
             throw std::runtime_error("missing required option --barrier");
@@ -147,7 +152,23 @@ struct EquityTrade {
             return bachelier_price(type, s, K, tt, rr, v);
         }
 
-        if (model == "heston") return price_heston(m, s, rr, tt, cfg);
+        if (model == "heston") {
+            // The generic risk tooling (numerical greeks, scenario grid)
+            // perturbs the `v` argument. Heston is not driven by a single
+            // lognormal vol, so map a vol bump to a parallel shift of the
+            // variance level: move v0 and theta together by the change in
+            // variance relative to the trade's base vol. The resulting "vega"
+            // is the sensitivity to a parallel shift of the vol level, the
+            // closest analogue to BSM vega. At v == vol this is a no-op, so the
+            // base price is unchanged.
+            HestonParams hp = heston;
+            if (v > 0.0 && vol > 0.0) {
+                double dvar = v * v - vol * vol;
+                hp.v0 = std::max(heston.v0 + dvar, 1e-8);
+                hp.theta = std::max(heston.theta + dvar, 1e-8);
+            }
+            return price_heston(m, s, rr, tt, cfg, hp);
+        }
 
         if (instrument == "european" || instrument == "american") {
             ExerciseStyle st = (instrument == "american")
@@ -297,19 +318,22 @@ private:
     }
 
     double price_heston(const std::string& m, double s, double rr, double tt,
-                        McConfig cfg) const {
+                        McConfig cfg, const HestonParams& hp) const {
         if (instrument == "american") {
             LsmcConfig lc;
             lc.paths = static_cast<std::size_t>(paths);
             lc.steps = steps > 0 ? static_cast<int>(steps) : 50;
             lc.seed = static_cast<std::uint64_t>(seed);
-            return lsmc_american_heston(type, s, K, tt, rr, q, heston, lc).price;
+            return lsmc_american_heston(type, s, K, tt, rr, q, hp, lc).price;
         }
         if (instrument == "european" && m != "mc")
-            return heston_price(type, s, K, tt, rr, q, heston);
+            return heston_price(type, s, K, tt, rr, q, hp);
         cfg.antithetic = false;
+        // Centralized payoff dispatch (#5) with the vol-bump-adjusted Heston
+        // params (#3): hp carries the parallel variance-level shift used by the
+        // numerical greeks / scenario tooling.
         return mc_heston(make_path_payoff(payoff_kind(), payoff_params(s, rr, tt)),
-                         s, tt, rr, q, heston, cfg)
+                         s, tt, rr, q, hp, cfg)
             .price;
     }
 };

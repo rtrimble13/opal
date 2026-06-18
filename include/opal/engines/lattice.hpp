@@ -21,12 +21,26 @@ inline double binomial_crr_price(OptionType type, ExerciseStyle style, double S,
     require(S > 0.0 && K > 0.0 && sigma > 0.0 && T > 0.0,
             "binomial: S, K, sigma, T must be positive");
     double b = r - q;
+    // The CRR tree is only arbitrage-free while e^{b*dt} stays inside (d, u),
+    // i.e. while |b|*sqrt(dt) < sigma. A large carry-to-vol ratio with too few
+    // steps breaks 0 < p < 1. Rather than reject otherwise-valid market inputs,
+    // raise the step count to twice the no-arbitrage minimum (the bare minimum
+    // leaves p on the degenerate boundary p->1; the 2x margin keeps the tree
+    // well inside the admissible region) and cap it to bound work. Note CRR is
+    // a slow O(1/n) cross-check engine: in extreme carry/vol regimes prefer
+    // Leisen-Reimer or the analytic price, or raise --steps for convergence.
+    if (b != 0.0) {
+        double need = 2.0 * T * b * b / (sigma * sigma);
+        int min_steps = static_cast<int>(std::ceil(need)) + 1;
+        if (min_steps > steps) steps = std::min(min_steps, 2'000'000);
+    }
     double dt = T / steps;
     double u = std::exp(sigma * std::sqrt(dt));
     double d = 1.0 / u;
     double p = (std::exp(b * dt) - d) / (u - d);
     require(p > 0.0 && p < 1.0,
-            "binomial: arbitrage in tree (increase steps or check inputs)");
+            "binomial: arbitrage in tree even at the step cap; check inputs "
+            "(extreme rate-to-volatility ratio)");
     double disc = std::exp(-r * dt);
     double phi = type_sign(type);
 
@@ -104,9 +118,20 @@ inline double trinomial_price(OptionType type, ExerciseStyle style, double S,
     require(S > 0.0 && K > 0.0 && sigma > 0.0 && T > 0.0,
             "trinomial: S, K, sigma, T must be positive");
     double b = r - q;
+    double nu = b - 0.5 * sigma * sigma;
+    // The middle branch probability pm = 2/3 - nu^2*dt/(3*sigma^2) goes
+    // negative once dt > 2*sigma^2/nu^2. Raise the step count to twice that
+    // no-arbitrage minimum (keeping pm comfortably positive rather than on the
+    // boundary) instead of rejecting valid inputs, capped to bound work. As
+    // with CRR this is a cross-check engine; prefer Leisen-Reimer/analytic or
+    // raise --steps for convergence in extreme carry/vol regimes.
+    if (nu != 0.0) {
+        double need = 2.0 * T * nu * nu / (2.0 * sigma * sigma);
+        int min_steps = static_cast<int>(std::ceil(need)) + 1;
+        if (min_steps > steps) steps = std::min(min_steps, 2'000'000);
+    }
     double dt = T / steps;
     double dx = sigma * std::sqrt(3.0 * dt);
-    double nu = b - 0.5 * sigma * sigma;
     double edx = std::exp(dx);
     double pu = 0.5 * ((sigma * sigma * dt + nu * nu * dt * dt) / (dx * dx) +
                        nu * dt / dx);
@@ -114,7 +139,8 @@ inline double trinomial_price(OptionType type, ExerciseStyle style, double S,
                        nu * dt / dx);
     double pm = 1.0 - pu - pd;
     require(pu > 0.0 && pd > 0.0 && pm > 0.0,
-            "trinomial: invalid probabilities (increase steps)");
+            "trinomial: invalid probabilities even at the step cap; check "
+            "inputs (extreme rate-to-volatility ratio)");
     double disc = std::exp(-r * dt);
     double phi = type_sign(type);
 

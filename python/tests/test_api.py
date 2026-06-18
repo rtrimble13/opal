@@ -91,6 +91,29 @@ def test_heston():
     approx(h, bs, 1e-4)
 
 
+def test_heston_greeks():
+    # BS limit: xi tiny, v0 = theta -> Heston greeks collapse onto BSM greeks.
+    flat = opal.HestonParams(v0=0.04, kappa=2.0, theta=0.04, xi=1e-4, rho=0.0)
+    hg = opal.heston_greeks("call", spot=100, strike=105, expiry=1.0, rate=0.04,
+                            div=0.01, params=flat)
+    bs = opal.bs_greeks("call", spot=100, strike=105, expiry=1.0, rate=0.04,
+                        div=0.01, vol=0.2)
+    approx(hg.delta, bs.delta, 1e-4)
+    approx(hg.gamma, bs.gamma, 1e-3)
+    approx(hg.vega, bs.vega, 2e-2)
+    assert hg.theta < 0
+    # Full Heston parameter sensitivities have sensible signs.
+    p = opal.HestonParams(v0=0.05, kappa=1.5, theta=0.06, xi=0.4, rho=-0.7)
+    fg = opal.heston_greeks("call", spot=100, strike=105, expiry=1.0, rate=0.04,
+                            div=0.01, params=p)
+    assert fg.dv0 > 0 and fg.dtheta > 0 and fg.vega > 0 and fg.rho > 0
+    assert 0 < fg.delta < 1 and fg.gamma > 0
+    # Spot-delta put-call relation: dC/dS - dP/dS = exp(-qT).
+    pg = opal.heston_greeks("put", spot=100, strike=105, expiry=1.0, rate=0.04,
+                            div=0.01, params=p)
+    approx(fg.delta - pg.delta, math.exp(-0.01 * 1.0), 1e-5)
+
+
 def test_sabr():
     p = opal.SabrParams(alpha=0.25, beta=1.0, rho=0.0, nu=1e-8)
     approx(opal.sabr_vol(100, 90, 2.0, p), 0.25, 1e-6)

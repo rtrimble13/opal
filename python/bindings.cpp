@@ -65,6 +65,30 @@ PYBIND11_MODULE(_opal, m) {
                    ", rho=" + std::to_string(g.rho) + ")";
         });
 
+    py::class_<HestonGreeks>(m, "HestonGreeks")
+        .def_readonly("price", &HestonGreeks::price)
+        .def_readonly("delta", &HestonGreeks::delta)
+        .def_readonly("gamma", &HestonGreeks::gamma)
+        .def_readonly("vega", &HestonGreeks::vega)
+        .def_readonly("theta", &HestonGreeks::theta)
+        .def_readonly("rho", &HestonGreeks::rho)
+        .def_readonly("dv0", &HestonGreeks::dv0)
+        .def_readonly("dtheta", &HestonGreeks::dtheta)
+        .def_readonly("dxi", &HestonGreeks::dxi)
+        .def_readonly("drho", &HestonGreeks::drho)
+        .def("__repr__", [](const HestonGreeks& g) {
+            return "HestonGreeks(price=" + std::to_string(g.price) +
+                   ", delta=" + std::to_string(g.delta) +
+                   ", gamma=" + std::to_string(g.gamma) +
+                   ", vega=" + std::to_string(g.vega) +
+                   ", theta=" + std::to_string(g.theta) +
+                   ", rho=" + std::to_string(g.rho) +
+                   ", dv0=" + std::to_string(g.dv0) +
+                   ", dtheta=" + std::to_string(g.dtheta) +
+                   ", dxi=" + std::to_string(g.dxi) +
+                   ", drho=" + std::to_string(g.drho) + ")";
+        });
+
     py::class_<McResult>(m, "McResult")
         .def_readonly("price", &McResult::price)
         .def_readonly("std_error", &McResult::std_error)
@@ -415,6 +439,18 @@ PYBIND11_MODULE(_opal, m) {
         py::arg("option_type"), py::arg("spot"), py::arg("strike"),
         py::arg("expiry"), py::arg("rate"), py::arg("div"), py::arg("params"),
         "Semi-analytic Heston price (characteristic function).");
+
+    m.def(
+        "heston_greeks",
+        [](const std::string& t, double S, double K, double T, double r, double q,
+           const HestonParams& p) {
+            return heston_greeks(parse_type(t), S, K, T, r, q, p);
+        },
+        py::arg("option_type"), py::arg("spot"), py::arg("strike"),
+        py::arg("expiry"), py::arg("rate"), py::arg("div"), py::arg("params"),
+        "First-class Heston greeks: spot delta/gamma, a parallel-variance-shift "
+        "vega, theta, rate rho, plus v0/theta/xi/rho parameter sensitivities. "
+        "Returns HestonGreeks.");
 
     m.def(
         "heston_mc",

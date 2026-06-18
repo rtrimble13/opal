@@ -260,6 +260,32 @@ void cmd_price(const Args& a, bool with_greeks) {
     rep.add("expiry_years", t.T, 6);
 
     if (with_greeks) {
+        // First-class Heston risk for the semi-analytic European: real spot,
+        // vega (parallel variance shift) and v0/theta/xi/rho sensitivities,
+        // rather than the generic vol-bump path (#14).
+        if (t.model == "heston" && t.instrument == "european" &&
+            t.resolved_method() == "analytic") {
+            HestonGreeks hg =
+                heston_greeks(t.type, t.S, t.K, t.T, t.r, t.q, t.heston);
+            rep.add("price", hg.price, 6);
+            rep.add("delta", hg.delta, 6);
+            rep.add("gamma", hg.gamma, 6);
+            rep.add("vega", hg.vega / 100.0, 6);    // per vol point
+            rep.add("theta", hg.theta / 365.0, 6);  // per calendar day
+            rep.add("rho", hg.rho / 100.0, 6);      // per 1% rate
+            rep.add("dV_dv0", hg.dv0, 6);
+            rep.add("dV_dtheta", hg.dtheta, 6);
+            rep.add("dV_dxi", hg.dxi, 6);
+            rep.add("dV_drho", hg.drho, 6);
+            rep.print(out, "Opal | risk report");
+            if (out == OutputFormat::Table) {
+                std::cout << "  (vega per vol pt, theta per day, rho per 1% "
+                             "rate)\n";
+                std::cout << "  (dV_dv0/dV_dtheta per unit variance; "
+                             "dV_dxi/dV_drho per unit)\n";
+            }
+            return;
+        }
         Greeks g = trade_greeks(t);
         rep.add("price", g.price, 6);
         rep.add("delta", g.delta, 6);

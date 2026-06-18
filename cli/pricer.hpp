@@ -335,15 +335,30 @@ struct EquityTrade {
             // Fixed seed across bumps => common random numbers.
             return price_heston(m, s, rr, tt, cfg, hp);
         };
-        return opal::heston_greeks_fd(f, S, T, r, heston);
+        // Common random numbers keep the first-order differences low-variance
+        // even at small bumps, but gamma is a second difference and is swamped
+        // by sampling noise at the analytic default (ds = S*1e-4). Widen the
+        // spot bump for the MC path so gamma is at least usable; the wider bump
+        // costs negligible truncation error on the (CRN-stable) first-order
+        // risks. Kept in sync with the heston_greeks_mc_crn test.
+        HestonBumpSizes h = mc_heston_bumps();
+        return opal::heston_greeks_fd(f, S, T, r, heston, h);
     }
 
-    /// True when this trade is priced by a noisy Monte Carlo / LSMC engine, so
-    /// its greeks carry sampling noise (used to caption the risk report).
+    /// Bump profile for the Monte Carlo Heston greeks path (see
+    /// heston_trade_greeks). The heston_greeks_mc_crn unit test mirrors these
+    /// values so the shipped configuration is what gets validated.
+    static HestonBumpSizes mc_heston_bumps() {
+        HestonBumpSizes h;
+        h.spot_rel = 1e-2;
+        return h;
+    }
+
+    /// True when this trade's greeks come from a noisy Monte Carlo / LSMC
+    /// engine (used to caption the risk report). Only meaningful for Heston,
+    /// the sole caller's context.
     bool is_monte_carlo() const {
-        return model == "heston" ? !(instrument == "european" &&
-                                     resolved_method() == "analytic")
-                                 : resolved_method() == "mc";
+        return !(instrument == "european" && resolved_method() == "analytic");
     }
 
 private:

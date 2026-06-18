@@ -1,8 +1,11 @@
 // First-class Heston (1993) greeks: spot sensitivities plus sensitivities to
-// the model's own parameters, computed by central finite differences over the
-// semi-analytic `heston_price`. This is the constructive counterpart to the
-// generic `numerical_greeks` path, which only understands a single lognormal
-// `vol` knob and so cannot expose v0/theta/xi/rho risk.
+// the model's own parameters, computed by central finite differences over a
+// Heston pricer. `heston_greeks` differences the semi-analytic `heston_price`
+// (European); the engine-agnostic `heston_greeks_fd` differences any pricer,
+// including a Monte Carlo / Longstaff-Schwartz one under common random numbers
+// for American and exotic Heston risk. This is the constructive counterpart to
+// the generic `numerical_greeks` path, which only understands a single
+// lognormal `vol` knob and so cannot expose v0/theta/xi/rho risk.
 //
 // Conventions (all per 1.00 of the bumped quantity unless noted):
 //   delta  = dV/dS,        gamma = d2V/dS2

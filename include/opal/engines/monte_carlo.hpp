@@ -12,6 +12,8 @@
 #include <functional>
 #include <numeric>
 #include <random>
+#include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "opal/core/types.hpp"
@@ -265,6 +267,52 @@ inline PathPayoff barrier_payoff(OptionType type, BarrierType bt, double K,
                           : (hit_idx + 1) * T / static_cast<double>(p.size());
         return rebate * std::exp(r * (T - t_hit));
     };
+}
+
+// ---------------------------------------------------------------------------
+// Path-payoff dispatch: a single source of truth for selecting a path payoff
+// by name. The CLI and the Python bindings previously each duplicated this
+// selection and had drifted apart (e.g. the Python barrier payoff dropped the
+// rebate / r / T arguments the CLI passed); routing both through here keeps
+// them in lock-step.
+// ---------------------------------------------------------------------------
+struct PayoffParams {
+    OptionType type = OptionType::Call;
+    double K = 0.0;
+    double cash = 1.0;                            // digital cash payout
+    BarrierType barrier_type = BarrierType::DownOut;
+    double barrier = 0.0;                         // barrier level H
+    double S0 = 0.0;                              // spot at inception
+    double rebate = 0.0;                          // barrier rebate
+    double r = 0.0;                               // knock-out rebate accrual
+    double T = 0.0;                               // knock-out rebate accrual
+};
+
+/// Build a path payoff for `kind`, one of: "vanilla", "digital",
+/// "asian-arith" (plain arithmetic average), "asian-geo", "lookback-fixed",
+/// "lookback-float", "barrier". Throws on an unknown kind.
+inline PathPayoff make_path_payoff(const std::string& kind,
+                                   const PayoffParams& p) {
+    if (kind == "vanilla") return vanilla_payoff(p.type, p.K);
+    if (kind == "digital") return digital_payoff(p.type, p.K, p.cash);
+    if (kind == "asian-geo") return geometric_asian_payoff(p.type, p.K);
+    if (kind == "asian-arith") {
+        double phi = type_sign(p.type);
+        double K = p.K;
+        return [phi, K](const std::vector<double>& path) {
+            double sum = 0.0;
+            for (double x : path) sum += x;
+            return std::max(phi * (sum / path.size() - K), 0.0);
+        };
+    }
+    if (kind == "lookback-fixed")
+        return lookback_payoff(p.type, StrikeStyle::Fixed, p.K, p.S0);
+    if (kind == "lookback-float")
+        return lookback_payoff(p.type, StrikeStyle::Floating, 0.0, p.S0);
+    if (kind == "barrier")
+        return barrier_payoff(p.type, p.barrier_type, p.K, p.barrier, p.S0,
+                              p.rebate, p.r, p.T);
+    throw std::invalid_argument("unknown path payoff '" + kind + "'");
 }
 
 // ---------------------------------------------------------------------------

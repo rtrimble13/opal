@@ -181,6 +181,12 @@ scripted pre-trade workflow.
 and reports per-position and aggregated NPV, delta, gamma, vega and theta —
 see `examples/book.csv`.
 
+Cell formats match the command-line flags: numeric cells accept a trailing
+`%` (e.g. `rate=4%`, `vol=22%`), and `expiry` takes either a year fraction
+(`0.5`) or a `YYYY-MM-DD` date (ACT/365F from today). A malformed cell is
+reported with its row and column, e.g.
+`portfolio row 3, column 'vol': expected a number, got 'oops'`.
+
 ## Conventions
 
 - Rates and dividend yields are continuously compounded decimals.

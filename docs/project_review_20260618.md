@@ -147,26 +147,30 @@ Each actionable finding links to its GitHub issue.
     tests. Either wire them into new analytics (see feature ideas) or document
     them as intentional public utilities. → [#12](https://github.com/rtrimble13/opal/issues/12)
 
-## New feature ideas (quarantined — evidence-backed, not filed as issues)
+## New feature ideas (evidence-backed)
 
-These are product speculation, kept out of the backlog by design. Each points at
-something already in the tree.
+These are product speculation rather than defects, so they are tracked
+separately from the engineering backlog above. Each points at something already
+in the tree, and each has now been filed as a GitHub issue for backlog tracking.
 
 - **Two-asset / compound / partial-time-barrier analytics** — the unused
   `bivar_norm_cdf` (normal.hpp:72) is exactly the machinery needed for
   Reiner–Rubinstein compound options, two-asset rainbows, and partial-barrier
   closed forms. The capability is already built and tested; only the pricing
-  wrappers are missing. (P2)
-- **First-class Heston greeks** — the same gap behind finding #1: expose analytic
-  or finite-difference Heston greeks (delta/vega/vanna w.r.t. `v0`, `theta`,
-  `rho`) so the CLI/Python can report real Heston risk rather than a BSM-style
-  vol bump. (P2)
+  wrappers are missing. (P2) → [#13](https://github.com/rtrimble13/opal/issues/13)
+- **First-class Heston greeks** — the constructive counterpart to finding #1:
+  expose analytic or finite-difference Heston greeks (delta/gamma plus
+  sensitivities w.r.t. `v0`, `theta`, `xi`, `rho`) so the CLI/Python can report
+  real Heston risk rather than a BSM-style vol bump. (P2)
+  → [#14](https://github.com/rtrimble13/opal/issues/14)
 - **Vol-surface / smile object for SABR** — `sabr_lognormal_vol` and the swaption
   pricer already consume per-strike vols; a thin smile/cube container would let
   `chain`/`scenario` price a whole strike ladder off one calibrated SABR set. (P3)
+  → [#15](https://github.com/rtrimble13/opal/issues/15)
 - **Calibration routines** — Heston/SABR parameters are inputs everywhere
   (`HestonParams`, `SabrParams`); a least-squares calibrator to a quoted vol
   smile is the obvious next layer for an "institutional" library. (P3)
+  → [#16](https://github.com/rtrimble13/opal/issues/16)
 
 ## What's done well (preserve these)
 

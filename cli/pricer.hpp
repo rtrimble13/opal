@@ -275,15 +275,45 @@ struct EquityTrade {
     }
 
     /// Monte Carlo standard error when the resolved method is mc, else NaN.
+    /// Mirrors the MC dispatch in price_at for every instrument that has a
+    /// Monte Carlo path, so `opal price --method mc` reports the error bar that
+    /// justifies the method (previously only asian-arith did).
     double mc_std_error() const {
         if (resolved_method() != "mc") return std::nan("");
+        // Instruments/models with no GBM path payoff are always priced
+        // analytically regardless of --method.
+        if (model == "bachelier" || instrument == "digital-asset" ||
+            instrument == "gap")
+            return std::nan("");
+
         McConfig cfg;
         cfg.paths = static_cast<std::size_t>(paths);
         cfg.steps = steps > 0 ? static_cast<int>(steps) : 252;
         cfg.seed = static_cast<std::uint64_t>(seed);
-        if (instrument == "asian-arith" && model != "heston")
-            return mc_arithmetic_asian(type, S, K, T, r, q, vol, cfg).std_error;
-        return std::nan("");
+        LsmcConfig lc;
+        lc.paths = static_cast<std::size_t>(paths);
+        lc.steps = steps > 0 ? static_cast<int>(steps) : 50;
+        lc.seed = static_cast<std::uint64_t>(seed);
+
+        if (model == "heston") {
+            if (instrument == "american")
+                return lsmc_american_heston(type, S, K, T, r, q, heston, lc)
+                    .std_error;
+            cfg.antithetic = false;
+            return mc_heston(make_path_payoff(payoff_kind(), payoff_params(S, r, T)),
+                             S, T, r, q, heston, cfg)
+                .std_error;
+        }
+
+        double qq = (model == "black76") ? r : q;
+        if (instrument == "american")
+            return lsmc_american(type, S, K, T, r, qq, vol, lc).std_error;
+        if (instrument == "asian-arith")
+            return mc_arithmetic_asian(type, S, K, T, r, qq, vol, cfg).std_error;
+        if (instrument == "european" || instrument == "digital-cash") cfg.steps = 1;
+        return mc_gbm(make_path_payoff(payoff_kind(), payoff_params(S, r, T)), S, T,
+                      r, qq, vol, cfg)
+            .std_error;
     }
 
 private:

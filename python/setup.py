@@ -1,4 +1,5 @@
 import os
+import re
 import shutil
 
 from pybind11.setup_helpers import Pybind11Extension, build_ext
@@ -20,6 +21,22 @@ if not os.path.isdir(LOCAL_INCLUDE):
         "opal headers not found: expected ./include (sdist) or ../include (repo)"
     )
 
+
+def read_version():
+    """Derive the package version from the single source of truth,
+    include/opal/version.hpp, so the C++ macros, CMake and the wheel never
+    disagree (issue #19). The header is bundled into the package above, so it
+    is present both in the repo and inside an sdist."""
+    for inc in (LOCAL_INCLUDE, REPO_INCLUDE):
+        header = os.path.join(inc, "opal", "version.hpp")
+        if os.path.isfile(header):
+            with open(header) as fh:
+                m = re.search(r'OPAL_VERSION_STRING\s+"([^"]+)"', fh.read())
+            if m:
+                return m.group(1)
+    raise RuntimeError("could not parse OPAL_VERSION_STRING from version.hpp")
+
+
 ext_modules = [
     Pybind11Extension(
         "opal._opal",
@@ -31,7 +48,7 @@ ext_modules = [
 
 setup(
     name="opal-pricing",
-    version="0.2.0",
+    version=read_version(),
     description="Institutional option pricing library (C++ core, Python API)",
     long_description=(
         "Opal prices and risk-manages equity and interest rate options: "

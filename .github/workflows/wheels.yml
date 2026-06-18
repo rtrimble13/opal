@@ -1,8 +1,11 @@
 name: Wheels
 
+# Reusable wheel/sdist build. Invoked by the release workflow on a `v*` tag
+# (so artifacts attach to the GitHub Release) and runnable on its own via the
+# Actions tab. It deliberately does NOT trigger on tags directly — the release
+# workflow calls it, so wheels are built exactly once per tag (issue #19).
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
   workflow_dispatch:
 
 jobs:

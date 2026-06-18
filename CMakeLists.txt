@@ -1,5 +1,19 @@
 cmake_minimum_required(VERSION 3.16)
-project(opal VERSION 0.1.0 LANGUAGES CXX)
+
+# Single source of truth for the project version: include/opal/version.hpp.
+# Parse OPAL_VERSION_STRING from it so CMake, the C++ macros and the Python
+# package can never disagree (issue #19, supersedes the drift of #9). Releases
+# are cut by pushing a `vX.Y.Z` git tag; CI verifies the tag matches this
+# header before publishing (see docs/releasing.md).
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/include/opal/version.hpp" _opal_version_hpp)
+string(REGEX MATCH "OPAL_VERSION_STRING \"([0-9]+\\.[0-9]+\\.[0-9]+)\""
+       _opal_version_match "${_opal_version_hpp}")
+if(NOT CMAKE_MATCH_1)
+  message(FATAL_ERROR
+    "could not parse OPAL_VERSION_STRING from include/opal/version.hpp")
+endif()
+
+project(opal VERSION ${CMAKE_MATCH_1} LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

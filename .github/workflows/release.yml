@@ -1,0 +1,99 @@
+name: Release
+
+# Tag-driven releases (issue #19). Pushing an annotated SemVer tag
+#
+#     git tag -a vX.Y.Z -m "opal vX.Y.Z" && git push origin vX.Y.Z
+#
+# (or `scripts/release.sh X.Y.Z`) cuts a GitHub Release with auto-generated
+# notes and attached artifacts. The git tag is the source of truth; the
+# version-check job below fails the release if the tag disagrees with the
+# in-tree version in include/opal/version.hpp, so a mismatch (the #9 drift)
+# can never be published. Publishing to PyPI is intentionally out of scope.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  # Gate: the pushed tag must match the single source of truth.
+  version-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Verify tag matches include/opal/version.hpp
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          hpp=$(sed -n 's/.*OPAL_VERSION_STRING "\([^"]*\)".*/\1/p' \
+                include/opal/version.hpp)
+          echo "tag version:     $tag"
+          echo "in-tree version: $hpp"
+          if [ "$tag" != "$hpp" ]; then
+            echo "::error::tag v$tag does not match include/opal/version.hpp ($hpp). Bump the header (or run scripts/release.sh) before tagging."
+            exit 1
+          fi
+
+  # Per-OS CLI binaries.
+  build-cli:
+    needs: version-check
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: opal-linux-x86_64
+          - os: macos-latest
+            asset: opal-macos-arm64
+          - os: windows-latest
+            asset: opal-windows-x86_64.exe
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
+            -DOPAL_BUILD_TESTS=OFF -DOPAL_BUILD_PYTHON=OFF
+          cmake --build build --config Release -j
+      - name: Stage binary
+        shell: bash
+        run: |
+          mkdir -p out
+          if [ -f build/Release/opal.exe ]; then
+            cp build/Release/opal.exe "out/${{ matrix.asset }}"
+          else
+            cp build/opal "out/${{ matrix.asset }}"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.os }}
+          path: out/*
+
+  # Reuse the existing wheel/sdist build rather than duplicating it.
+  wheels:
+    needs: version-check
+    uses: ./.github/workflows/wheels.yml
+
+  # Collect every artifact and publish the GitHub Release.
+  publish:
+    needs: [build-cli, wheels]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write  # required to create the release
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Collect release files
+        run: |
+          mkdir -p release
+          find artifacts -type f \
+            \( -name 'opal-*' -o -name '*.whl' -o -name '*.tar.gz' \) \
+            -exec cp {} release/ \;
+          echo "Release artifacts:"
+          ls -la release
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            --title "$GITHUB_REF_NAME" \
+            --generate-notes \
+            release/*

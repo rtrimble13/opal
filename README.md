@@ -230,7 +230,18 @@ cli/               the opal command line tool
 python/            pybind11 bindings + setuptools package
 tests/             C++ unit tests (custom micro-framework, no dependencies)
 examples/          sample portfolio, pre-trade script, Jupyter notebook
+scripts/           release helper (scripts/release.sh)
+docs/              releasing & versioning, project review
 ```
+
+## Releasing
+
+Opal uses tag-driven releases with the git tag as the single source of truth:
+`scripts/release.sh X.Y.Z` (or pushing a `vX.Y.Z` tag) cuts a GitHub Release
+with auto-generated notes and attached CLI binaries, wheels and sdist. The
+version lives only in `include/opal/version.hpp`; CMake and the Python package
+derive from it, and CI fails any release whose tag disagrees. See
+[docs/releasing.md](docs/releasing.md).
 
 ## License
 

@@ -265,6 +265,66 @@ PYBIND11_MODULE(_opal, m) {
         py::arg("div") = 0.0, py::arg("strike_style") = "floating",
         py::arg("extremum") = 0.0);
 
+    // ----- two-asset / compound analytics (bivariate normal) ----------------
+    m.def(
+        "exchange_option_price",
+        [](double S1, double S2, double T, double r, double q1, double q2,
+           double sig1, double sig2, double rho) {
+            return exchange_option_price(S1, S2, T, r, q1, q2, sig1, sig2, rho);
+        },
+        py::arg("spot1"), py::arg("spot2"), py::arg("expiry"), py::arg("rate") = 0.0,
+        py::arg("div1") = 0.0, py::arg("div2") = 0.0, py::arg("vol1") = 0.0,
+        py::arg("vol2") = 0.0, py::arg("rho") = 0.0,
+        "Margrabe (1978) option to exchange asset 2 for asset 1: max(S1-S2,0).");
+
+    m.def(
+        "rainbow_option_price",
+        [](const std::string& t, const std::string& kind, double S1, double S2,
+           double K, double T, double r, double q1, double q2, double sig1,
+           double sig2, double rho) {
+            OptionType ot = parse_type(t);
+            if (kind == "max")
+                return option_on_max_price(ot, S1, S2, K, T, r, q1, q2, sig1, sig2,
+                                           rho);
+            if (kind == "min")
+                return option_on_min_price(ot, S1, S2, K, T, r, q1, q2, sig1, sig2,
+                                           rho);
+            throw std::invalid_argument("rainbow kind must be 'max' or 'min'");
+        },
+        py::arg("option_type"), py::arg("kind"), py::arg("spot1"), py::arg("spot2"),
+        py::arg("strike"), py::arg("expiry"), py::arg("rate"), py::arg("div1") = 0.0,
+        py::arg("div2") = 0.0, py::arg("vol1") = 0.0, py::arg("vol2") = 0.0,
+        py::arg("rho") = 0.0,
+        "Stulz (1982) option on the max ('max') or min ('min') of two assets.");
+
+    m.def(
+        "two_asset_correlation_price",
+        [](const std::string& t, double S1, double S2, double K1, double K2,
+           double T, double r, double q1, double q2, double sig1, double sig2,
+           double rho) {
+            return two_asset_correlation_price(parse_type(t), S1, S2, K1, K2, T, r,
+                                               q1, q2, sig1, sig2, rho);
+        },
+        py::arg("option_type"), py::arg("spot1"), py::arg("spot2"),
+        py::arg("strike1"), py::arg("strike2"), py::arg("expiry"), py::arg("rate"),
+        py::arg("div1") = 0.0, py::arg("div2") = 0.0, py::arg("vol1") = 0.0,
+        py::arg("vol2") = 0.0, py::arg("rho") = 0.0,
+        "Two-asset correlation option: a call pays max(S2-K2,0) when S1>K1.");
+
+    m.def(
+        "compound_option_price",
+        [](const std::string& outer, const std::string& inner, double S, double K1,
+           double K2, double t1, double T2, double r, double q, double sig) {
+            return compound_option_price(parse_type(outer), parse_type(inner), S, K1,
+                                         K2, t1, T2, r, q, sig);
+        },
+        py::arg("outer_type"), py::arg("inner_type"), py::arg("spot"),
+        py::arg("strike1"), py::arg("strike2"), py::arg("expiry1"),
+        py::arg("expiry2"), py::arg("rate"), py::arg("div") = 0.0,
+        py::arg("vol") = 0.0,
+        "Geske (1979) compound option: an outer option (expiry1, strike1) on an "
+        "inner vanilla (expiry2>expiry1, strike2).");
+
     // ----- numerical engines ------------------------------------------------
     m.def(
         "binomial_price",

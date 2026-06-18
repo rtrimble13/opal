@@ -1,5 +1,7 @@
 // Validation of analytic models against textbook reference values and
 // no-arbitrage identities.
+#include <random>
+
 #include "opal/opal.hpp"
 #include "opal_test.hpp"
 
@@ -269,4 +271,112 @@ TEST_CASE(sabr_hagan) {
     double atm = sabr_lognormal_vol(0.03, 0.03, 1.0, skew);
     double near = sabr_lognormal_vol(0.03, 0.0300001, 1.0, skew);
     CHECK_CLOSE(near, atm, 1e-5);
+}
+
+TEST_CASE(two_asset_rainbow_and_exchange) {
+    double S1 = 100, S2 = 95, K = 100, T = 1.0, r = 0.05, q1 = 0.02, q2 = 0.04,
+           sig1 = 0.25, sig2 = 0.30, rho = 0.4;
+
+    // Exact identity: for every state {max,min} = {S1,S2} as a set, so
+    // (max-K)+ + (min-K)+ = (S1-K)+ + (S2-K)+. Hence call-on-max + call-on-min
+    // equals the two vanillas; likewise for puts.
+    double cmax = option_on_max_price(OptionType::Call, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double cmin = option_on_min_price(OptionType::Call, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double v1 = bsm_price(OptionType::Call, S1, K, T, r, q1, sig1);
+    double v2 = bsm_price(OptionType::Call, S2, K, T, r, q2, sig2);
+    CHECK_CLOSE(cmax + cmin, v1 + v2, 1e-9);
+    double pmax = option_on_max_price(OptionType::Put, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double pmin = option_on_min_price(OptionType::Put, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double pv1 = bsm_price(OptionType::Put, S1, K, T, r, q1, sig1);
+    double pv2 = bsm_price(OptionType::Put, S2, K, T, r, q2, sig2);
+    CHECK_CLOSE(pmax + pmin, pv1 + pv2, 1e-9);
+
+    // Put-call parity on the maximum: Cmax - Pmax = e^{-rT}E[max] - K e^{-rT}.
+    double exch = exchange_option_price(S1, S2, T, r, q1, q2, sig1, sig2, rho);
+    double max_fwd = S2 * std::exp(-q2 * T) + exch;
+    CHECK_CLOSE(cmax - pmax, max_fwd - K * std::exp(-r * T), 1e-9);
+
+    // Exchange degenerates to a vanilla call: swap a deterministic asset 2
+    // (sig2->0) that grows at r (q2=r) for asset 1 == call on S1 struck S2.
+    double exch_lim = exchange_option_price(100, 100, T, r, 0.0, r, sig1, 1e-9, 0.0);
+    CHECK_CLOSE(exch_lim, bsm_price(OptionType::Call, 100, 100, T, r, 0.0, sig1),
+                1e-9);
+
+    // Correlation option: with the condition strike K1 -> 0 the gate S1 > K1 is
+    // always met, so it reduces to a vanilla call on asset 2.
+    double corr_lim = two_asset_correlation_price(OptionType::Call, S1, S2, 1e-8, K,
+                                                  T, r, q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(corr_lim, bsm_price(OptionType::Call, S2, K, T, r, q2, sig2), 1e-6);
+
+    // Monte Carlo cross-check (fixed seed -> deterministic) of the absolute
+    // levels for max/min/exchange and the correlation option.
+    std::mt19937_64 rng(20260618);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    const long N = 400000;
+    double K1c = 90.0;  // correlation gate on S1
+    double d1 = (r - q1 - 0.5 * sig1 * sig1) * T, d2 = (r - q2 - 0.5 * sig2 * sig2) * T;
+    double w1 = sig1 * std::sqrt(T), w2 = sig2 * std::sqrt(T);
+    double sMax = 0, sMin = 0, sExch = 0, sCorr = 0;
+    for (long n = 0; n < N; ++n) {
+        double z1 = nd(rng);
+        double z2 = rho * z1 + std::sqrt(1.0 - rho * rho) * nd(rng);
+        double s1 = S1 * std::exp(d1 + w1 * z1);
+        double s2 = S2 * std::exp(d2 + w2 * z2);
+        sMax += std::max(std::max(s1, s2) - K, 0.0);
+        sMin += std::max(std::min(s1, s2) - K, 0.0);
+        sExch += std::max(s1 - s2, 0.0);
+        if (s1 > K1c) sCorr += std::max(s2 - K, 0.0);
+    }
+    double disc = std::exp(-r * T);
+    CHECK_CLOSE(disc * sMax / N, cmax, 0.08);
+    CHECK_CLOSE(disc * sMin / N, cmin, 0.08);
+    CHECK_CLOSE(disc * sExch / N, exch, 0.08);
+    double corr = two_asset_correlation_price(OptionType::Call, S1, S2, K1c, K, T, r,
+                                              q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(disc * sCorr / N, corr, 0.08);
+}
+
+TEST_CASE(compound_geske) {
+    double S = 100, K1 = 6.0, K2 = 100, t1 = 0.5, T2 = 1.0, r = 0.05, q = 0.0,
+           sig = 0.25;
+    double b = r - q;
+
+    // Compound put-call parity on the outer option (same inner call): holding
+    // call-on-call and shorting put-on-call locks in the inner option for K1 at
+    // t1, worth c - K1 e^{-r t1} today.
+    double coc = compound_option_price(OptionType::Call, OptionType::Call, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double poc = compound_option_price(OptionType::Put, OptionType::Call, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double c = gbs_price(OptionType::Call, S, K2, T2, r, b, sig);
+    CHECK_CLOSE(coc - poc, c - K1 * std::exp(-r * t1), 1e-9);
+    // Same parity for inner puts.
+    double cop = compound_option_price(OptionType::Call, OptionType::Put, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double pop = compound_option_price(OptionType::Put, OptionType::Put, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double p = gbs_price(OptionType::Put, S, K2, T2, r, b, sig);
+    CHECK_CLOSE(cop - pop, p - K1 * std::exp(-r * t1), 1e-9);
+
+    // K1 -> 0: a call-on-call is always exercised, so it equals the inner call.
+    double coc0 = compound_option_price(OptionType::Call, OptionType::Call, S, 1e-8,
+                                        K2, t1, T2, r, q, sig);
+    CHECK_CLOSE(coc0, c, 1e-5);
+
+    // Monte Carlo cross-check: value the inner option at t1, pay max(.-K1,0).
+    std::mt19937_64 rng(99);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    const long N = 200000;
+    double drift = (r - q - 0.5 * sig * sig) * t1, w = sig * std::sqrt(t1);
+    double sum = 0;
+    for (long n = 0; n < N; ++n) {
+        double s = S * std::exp(drift + w * nd(rng));
+        double iv = gbs_price(OptionType::Call, s, K2, T2 - t1, r, b, sig);
+        sum += std::max(iv - K1, 0.0);
+    }
+    CHECK_CLOSE(std::exp(-r * t1) * sum / N, coc, 0.05);
 }

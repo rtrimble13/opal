@@ -33,6 +33,15 @@ EQUITY INSTRUMENTS  (--instrument / -i)
   barrier-up-in        barrier-up-out       asian-arith     asian-geo
   lookback-fixed       lookback-float
 
+TWO-ASSET / COMPOUND INSTRUMENTS  (price only; bivariate-normal closed forms)
+  exchange       Margrabe: exchange asset 2 for asset 1, max(S1-S2,0)
+  rainbow-max    Stulz: option on max(S1,S2)
+  rainbow-min    Stulz: option on min(S1,S2)
+  correlation    Pays on S2 vs --strike only if S1 crosses --trigger
+  compound       Geske: --outer/--inner option on an inner vanilla
+                 (second asset: --spot2 --vol2 --div2 --rho;
+                  compound: --strike1 --strike2 --expiry2)
+
 RATES INSTRUMENTS
   cap        floor      caplet     floorlet    swaption    zcb-option
 
@@ -100,6 +109,10 @@ EXAMPLES
   opal price -i cap -K 4% -T 5 -r 4.2% -v 30% --freq 4
   opal price -i cap -K 4% -T 5 -r 4.2% --ois-rate 3.8% -v 30% --freq 4
   opal price -i swaption -t payer -K 4% -T 1 --tenor 5 -r 4% -v 25%
+  opal price -i rainbow-max -t call -S 100 --spot2 95 -K 100 -T 1 -r 5% \
+             -v 25% --vol2 30% --rho 0.4
+  opal price -i compound --outer call --inner call -S 100 --strike1 6 \
+             --strike2 100 -T 0.5 --expiry2 1 -r 5% -v 25%
   opal greeks -S 100 -K 100 -T 0.5 -r 5% -v 20%
   opal implied -S 100 -K 105 -T 0.5 -r 4% --price 3.85
   opal chain -S 100 -T 0.5 -r 4% -v 25% --strikes 80:120:5
@@ -242,11 +255,108 @@ Greeks trade_greeks(const EquityTrade& t) {
     return numerical_greeks(pricer, t.S, t.T, t.r, t.vol);
 }
 
+// ---------------------------------------------------------------------------
+// two-asset / compound analytics pricing
+// ---------------------------------------------------------------------------
+OptionType parse_opt_type(const std::string& s, const char* opt) {
+    if (s == "call" || s == "c") return OptionType::Call;
+    if (s == "put" || s == "p") return OptionType::Put;
+    throw std::runtime_error(std::string(opt) + " must be call or put, got '" + s +
+                             "'");
+}
+
+bool is_multi_asset_instrument(const std::string& inst) {
+    return inst == "exchange" || inst == "rainbow-max" || inst == "rainbow-min" ||
+           inst == "correlation" || inst == "compound";
+}
+
+void cmd_price_multi(const Args& a, OutputFormat out) {
+    std::string inst = a.get_str("instrument");
+    double r = a.get_num("rate", 0.0);
+    double T = a.get_expiry();
+    Report rep;
+    rep.add("instrument", inst);
+
+    if (inst == "exchange") {
+        double S1 = a.require_num("spot"), S2 = a.require_num("spot2");
+        double q1 = a.get_num("div", 0.0), q2 = a.get_num("div2", 0.0);
+        double v1 = a.require_num("vol"), v2 = a.require_num("vol2");
+        double rho = a.get_num("rho", 0.0);
+        double price = exchange_option_price(S1, S2, T, r, q1, q2, v1, v2, rho);
+        rep.add("spot1", S1, 4);
+        rep.add("spot2", S2, 4);
+        rep.add("rho", rho, 4);
+        rep.add("expiry_years", T, 6);
+        rep.add("price", price, 6);
+    } else if (inst == "rainbow-max" || inst == "rainbow-min") {
+        OptionType ty = parse_opt_type(a.get_str("type", "call"), "--type");
+        double S1 = a.require_num("spot"), S2 = a.require_num("spot2");
+        double K = a.require_num("strike");
+        double q1 = a.get_num("div", 0.0), q2 = a.get_num("div2", 0.0);
+        double v1 = a.require_num("vol"), v2 = a.require_num("vol2");
+        double rho = a.get_num("rho", 0.0);
+        double price = (inst == "rainbow-max")
+                           ? option_on_max_price(ty, S1, S2, K, T, r, q1, q2, v1,
+                                                 v2, rho)
+                           : option_on_min_price(ty, S1, S2, K, T, r, q1, q2, v1,
+                                                 v2, rho);
+        rep.add("type", to_string(ty));
+        rep.add("spot1", S1, 4);
+        rep.add("spot2", S2, 4);
+        rep.add("strike", K, 4);
+        rep.add("rho", rho, 4);
+        rep.add("expiry_years", T, 6);
+        rep.add("price", price, 6);
+    } else if (inst == "correlation") {
+        OptionType ty = parse_opt_type(a.get_str("type", "call"), "--type");
+        double S1 = a.require_num("spot"), S2 = a.require_num("spot2");
+        double K1 = a.require_num("trigger"), K2 = a.require_num("strike");
+        double q1 = a.get_num("div", 0.0), q2 = a.get_num("div2", 0.0);
+        double v1 = a.require_num("vol"), v2 = a.require_num("vol2");
+        double rho = a.get_num("rho", 0.0);
+        double price = two_asset_correlation_price(ty, S1, S2, K1, K2, T, r, q1, q2,
+                                                   v1, v2, rho);
+        rep.add("type", to_string(ty));
+        rep.add("spot1", S1, 4);
+        rep.add("spot2", S2, 4);
+        rep.add("trigger_strike_s1", K1, 4);
+        rep.add("payoff_strike_s2", K2, 4);
+        rep.add("rho", rho, 4);
+        rep.add("expiry_years", T, 6);
+        rep.add("price", price, 6);
+    } else {  // compound
+        OptionType outer = parse_opt_type(a.get_str("outer", "call"), "--outer");
+        OptionType inner = parse_opt_type(a.get_str("inner", "call"), "--inner");
+        double S = a.require_num("spot");
+        double K1 = a.require_num("strike1"), K2 = a.require_num("strike2");
+        double t1 = T;                            // outer expiry (-T)
+        double T2 = a.require_num("expiry2");     // inner expiry (year fraction)
+        double q = a.get_num("div", 0.0), v = a.require_num("vol");
+        double price = compound_option_price(outer, inner, S, K1, K2, t1, T2, r, q,
+                                             v);
+        rep.add("outer", to_string(outer));
+        rep.add("inner", to_string(inner));
+        rep.add("spot", S, 4);
+        rep.add("outer_strike", K1, 4);
+        rep.add("inner_strike", K2, 4);
+        rep.add("outer_expiry", t1, 6);
+        rep.add("inner_expiry", T2, 6);
+        rep.add("price", price, 6);
+    }
+    rep.print(out, "Opal | " + inst);
+}
+
 void cmd_price(const Args& a, bool with_greeks) {
     OutputFormat out = parse_output(a.get_str("output", "table"));
     std::string inst = a.get_str("instrument", "european");
     if (is_rates_instrument(inst)) {
         cmd_price_rates(a, out);
+        return;
+    }
+    if (is_multi_asset_instrument(inst)) {
+        // Two-asset / compound analytics are price-only (no single-asset greeks
+        // grid applies), like the rates instruments.
+        cmd_price_multi(a, out);
         return;
     }
     EquityTrade t = EquityTrade::from_args(a);

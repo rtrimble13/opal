@@ -192,6 +192,43 @@ TEST_CASE(heston_bs_limit_and_parity) {
     CHECK_CLOSE(c - pp, S * std::exp(-q * T) - K * std::exp(-r * T), 1e-8);
 }
 
+TEST_CASE(heston_greeks_bs_limit_and_signs) {
+    double S = 100, K = 105, T = 1.0, r = 0.04, q = 0.01;
+    // BS limit: xi tiny, v0 = theta = 0.04 (sigma = 0.2). First-class Heston
+    // spot/vega greeks must collapse onto the analytic BSM greeks.
+    HestonParams flat{0.04, 2.0, 0.04, 1e-4, 0.0};
+    HestonGreeks hg = heston_greeks(OptionType::Call, S, K, T, r, q, flat);
+    Greeks bs = bsm_greeks(OptionType::Call, S, K, T, r, q, 0.2);
+    CHECK_CLOSE(hg.price, bs.price, 1e-3);
+    CHECK_CLOSE(hg.delta, bs.delta, 1e-4);
+    CHECK_CLOSE(hg.gamma, bs.gamma, 1e-3);
+    CHECK_CLOSE(hg.vega, bs.vega, 2e-2);   // per 1.00 vol
+    CHECK_CLOSE(hg.rho, bs.rho, 1e-2);     // per 1.00 rate
+    // Decay convention: a call without offsetting carry loses value over time.
+    CHECK_TRUE(hg.theta < 0.0);
+
+    // Full Heston: parameter sensitivities have the expected signs. More
+    // variance (v0/theta) and a vega bump all enrich a vanilla; the call's
+    // rate rho is positive.
+    HestonParams p{0.05, 1.5, 0.06, 0.4, -0.7};
+    HestonGreeks fg = heston_greeks(OptionType::Call, S, K, T, r, q, p);
+    CHECK_TRUE(fg.dv0 > 0.0);
+    CHECK_TRUE(fg.dtheta > 0.0);
+    CHECK_TRUE(fg.vega > 0.0);
+    CHECK_TRUE(fg.rho > 0.0);
+    CHECK_TRUE(fg.delta > 0.0 && fg.delta < 1.0);
+    CHECK_TRUE(fg.gamma > 0.0);
+
+    // Spot-delta put-call relation: dC/dS - dP/dS = exp(-qT).
+    HestonGreeks pg = heston_greeks(OptionType::Put, S, K, T, r, q, p);
+    CHECK_CLOSE(fg.delta - pg.delta, std::exp(-q * T), 1e-5);
+    // Parameter sensitivities are spot-direction independent (same dv0/dxi/drho
+    // for a call and put struck identically, by put-call parity).
+    CHECK_CLOSE(fg.dv0, pg.dv0, 1e-4);
+    CHECK_CLOSE(fg.dxi, pg.dxi, 1e-4);
+    CHECK_CLOSE(fg.drho, pg.drho, 1e-4);
+}
+
 TEST_CASE(sabr_hagan) {
     // beta=1, nu->0 collapses to constant lognormal vol alpha.
     SabrParams flat{0.25, 1.0, 0.0, 1e-8};

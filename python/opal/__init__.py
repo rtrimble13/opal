@@ -31,6 +31,7 @@ Conventions
 from opal._opal import (  # noqa: F401
     # result types
     Greeks,
+    HestonGreeks,
     McResult,
     HestonParams,
     SabrParams,
@@ -64,6 +65,7 @@ from opal._opal import (  # noqa: F401
     lsmc_heston_price,
     # stochastic vol
     heston_price,
+    heston_greeks,
     heston_mc,
     sabr_vol,
     sabr_normal_vol,
@@ -82,7 +84,8 @@ from opal._opal import (  # noqa: F401
 )
 
 __all__ = [
-    "Greeks", "McResult", "HestonParams", "SabrParams", "HullWhiteParams",
+    "Greeks", "HestonGreeks", "McResult", "HestonParams", "SabrParams",
+    "HullWhiteParams",
     "DiscountCurve", "SwaptionResult", "CapletDetail", "CapFloorResult",
     "bs_price", "bs_greeks", "black76_price", "bachelier_price",
     "implied_vol", "implied_vol_bachelier",
@@ -90,7 +93,8 @@ __all__ = [
     "bs_discrete_div_price", "binomial_discrete_div_price",
     "binomial_price", "trinomial_price", "pde_price", "mc_price", "mc_custom",
     "lsmc_price", "lsmc_heston_price",
-    "heston_price", "heston_mc", "sabr_vol", "sabr_normal_vol", "sabr_price",
+    "heston_price", "heston_greeks", "heston_mc", "sabr_vol",
+    "sabr_normal_vol", "sabr_price",
     "cap_floor_price", "cap_floor_price_ois", "swaption_price",
     "swaption_price_ois", "sabr_swaption_price",
     "hw_zcb_option", "hw_caplet", "hw_floorlet", "hw_cap",

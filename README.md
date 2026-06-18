@@ -76,6 +76,9 @@ opal price -i american -t put -S 50 -K 55 -T 1 -r 3% -q 1% -v 30%
 opal price -i barrier-up-out -S 100 -K 100 -H 120 -T 1 -r 5% -v 25%
 opal price -i asian-arith -S 100 -K 100 -T 1 -r 5% -v 30% --paths 200000
 opal price --model heston -S 100 -K 100 -T 1 -r 3% --v0 0.04 --kappa 1.5 --theta 0.04 --xi 0.4 --rho -0.6
+# First-class Heston risk: delta/gamma, vega (parallel variance shift) and
+# dV/dv0, dV/dtheta, dV/dxi, dV/drho sensitivities
+opal greeks --model heston -S 100 -K 105 -T 1 -r 4% --v0 0.05 --kappa 1.5 --theta 0.06 --xi 0.4 --rho -0.7
 
 # Discrete cash dividends (escrowed model; American captures early exercise)
 opal price -i american -t call -S 100 -K 100 -T 1 -r 4% -v 25% --dividends 0.25:1.50,0.75:1.50
@@ -157,6 +160,10 @@ opal.lsmc_price("put", spot=100, strike=100, expiry=1.0, rate=0.06, vol=0.25)
 hp = opal.HestonParams(v0=0.04, kappa=1.5, theta=0.05, xi=0.6, rho=-0.7)
 opal.heston_price("call", spot=100, strike=100, expiry=1.0, rate=0.03, div=0.0, params=hp)
 opal.lsmc_heston_price("put", spot=100, strike=100, expiry=1.0, rate=0.05, div=0.0, params=hp)
+# First-class Heston greeks: spot delta/gamma, parallel-variance-shift vega,
+# theta, rate rho, plus dV/dv0, dV/dtheta, dV/dxi and dV/drho.
+hg = opal.heston_greeks("call", spot=100, strike=100, expiry=1.0, rate=0.03, div=0.0, params=hp)
+hg.delta, hg.vega / 100, hg.dv0, hg.drho
 
 curve = opal.DiscountCurve([1, 2, 5, 10], [0.042, 0.040, 0.039, 0.041])
 opal.swaption_price(curve, "payer", strike=0.04, vol=0.25, expiry=1.0, tenor=5.0)
@@ -193,13 +200,21 @@ reported with its row and column, e.g.
 - Library-level greeks are per unit of the underlying variable; the CLI
   reports trader conventions (vega per vol point, theta per calendar day,
   rho per 1% rate move).
+- Heston greeks (`heston_greeks` / `opal greeks --model heston`) report a
+  "vega" defined as a parallel shift of the variance level (v0 and theta moved
+  together, anchored at sqrt(v0)) alongside the per-parameter sensitivities
+  dV/dv0, dV/dtheta, dV/dxi and dV/drho (v0/theta per unit variance). European
+  options use the semi-analytic price; American and exotic Heston instruments
+  finite-difference the Monte Carlo / Longstaff–Schwartz price under common
+  random numbers, so first-order greeks are stable while gamma carries the
+  engine's sampling noise.
 - Barrier closed forms assume continuous monitoring; the Monte Carlo engine
   monitors discretely at each step (worth more for knock-outs) — use it to
   quantify discrete-monitoring premia.
 
 ## Validation
 
-`opal_tests` (141 checks) validates against Hull and Haug reference values,
+`opal_tests` (162 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
 model degeneracies (Heston → BS, SABR → flat lognormal), and

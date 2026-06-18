@@ -191,12 +191,17 @@ struct EquityTrade {
                     return lsmc_american(type, s, K, tt, rr, qq, v, lc).price;
                 }
                 cfg.steps = 1;
-                return mc_gbm(vanilla_payoff(type, K), s, tt, rr, qq, v, cfg).price;
+                return mc_gbm(make_path_payoff(payoff_kind(),
+                                               payoff_params(s, rr, tt)),
+                              s, tt, rr, qq, v, cfg)
+                    .price;
             }
         } else if (instrument == "digital-cash") {
             if (m == "mc") {
                 cfg.steps = 1;
-                return mc_gbm(digital_payoff(type, K, cash), s, tt, rr, qq, v, cfg)
+                return mc_gbm(make_path_payoff(payoff_kind(),
+                                               payoff_params(s, rr, tt)),
+                              s, tt, rr, qq, v, cfg)
                     .price;
             }
             return cash_or_nothing_price(type, s, K, tt, rr, qq, v, cash);
@@ -210,9 +215,9 @@ struct EquityTrade {
                 return pde_barrier_price(type, bt, s, K, barrier, tt, rr, qq, v,
                                          rebate, pg);
             if (m == "mc")
-                return mc_gbm(
-                           barrier_payoff(type, bt, K, barrier, s, rebate, rr, tt),
-                           s, tt, rr, qq, v, cfg)
+                return mc_gbm(make_path_payoff(payoff_kind(),
+                                               payoff_params(s, rr, tt)),
+                              s, tt, rr, qq, v, cfg)
                     .price;
             return barrier_price(type, bt, s, K, barrier, tt, rr, qq, v, rebate);
         } else if (instrument == "asian-arith") {
@@ -221,8 +226,9 @@ struct EquityTrade {
             return mc_arithmetic_asian(type, s, K, tt, rr, qq, v, cfg).price;
         } else if (instrument == "asian-geo") {
             if (m == "mc")
-                return mc_gbm(geometric_asian_payoff(type, K), s, tt, rr, qq, v,
-                              cfg)
+                return mc_gbm(make_path_payoff(payoff_kind(),
+                                               payoff_params(s, rr, tt)),
+                              s, tt, rr, qq, v, cfg)
                     .price;
             if (steps > 0)
                 return discrete_geometric_asian_price(type, s, K, tt, rr, qq, v,
@@ -230,14 +236,16 @@ struct EquityTrade {
             return geometric_asian_price(type, s, K, tt, rr, qq, v);
         } else if (instrument == "lookback-float") {
             if (m == "mc")
-                return mc_gbm(lookback_payoff(type, StrikeStyle::Floating, 0.0, s),
+                return mc_gbm(make_path_payoff(payoff_kind(),
+                                               payoff_params(s, rr, tt)),
                               s, tt, rr, qq, v, cfg)
                     .price;
             return floating_lookback_price(type, s, tt, rr, qq, v, extremum);
         } else if (instrument == "lookback-fixed") {
             if (m == "mc")
-                return mc_gbm(lookback_payoff(type, StrikeStyle::Fixed, K, s), s,
-                              tt, rr, qq, v, cfg)
+                return mc_gbm(make_path_payoff(payoff_kind(),
+                                               payoff_params(s, rr, tt)),
+                              s, tt, rr, qq, v, cfg)
                     .price;
             return fixed_lookback_price(type, s, K, tt, rr, qq, v, extremum);
         }
@@ -258,6 +266,36 @@ struct EquityTrade {
     }
 
 private:
+    /// Canonical path-payoff kind for this instrument (CLI vocabulary ->
+    /// library vocabulary). Throws for instruments with no path payoff.
+    std::string payoff_kind() const {
+        if (instrument == "european" || instrument == "american") return "vanilla";
+        if (instrument == "digital-cash") return "digital";
+        if (instrument == "asian-arith") return "asian-arith";
+        if (instrument == "asian-geo") return "asian-geo";
+        if (instrument == "lookback-float") return "lookback-float";
+        if (instrument == "lookback-fixed") return "lookback-fixed";
+        if (instrument.rfind("barrier-", 0) == 0) return "barrier";
+        throw std::runtime_error("instrument '" + instrument +
+                                 "' has no Monte Carlo path payoff");
+    }
+
+    /// Path-payoff parameters under bumped market data (S0 = bumped spot;
+    /// r/T carry the knock-out rebate accrual convention for barriers).
+    PayoffParams payoff_params(double s, double rr, double tt) const {
+        PayoffParams pp;
+        pp.type = type;
+        pp.K = K;
+        pp.cash = cash;
+        pp.S0 = s;
+        pp.barrier = barrier;
+        pp.rebate = rebate;
+        pp.r = rr;
+        pp.T = tt;
+        if (instrument.rfind("barrier-", 0) == 0) pp.barrier_type = barrier_type();
+        return pp;
+    }
+
     double price_heston(const std::string& m, double s, double rr, double tt,
                         McConfig cfg) const {
         if (instrument == "american") {
@@ -270,30 +308,9 @@ private:
         if (instrument == "european" && m != "mc")
             return heston_price(type, s, K, tt, rr, q, heston);
         cfg.antithetic = false;
-        PathPayoff payoff;
-        if (instrument == "european")
-            payoff = vanilla_payoff(type, K);
-        else if (instrument == "digital-cash")
-            payoff = digital_payoff(type, K, cash);
-        else if (instrument.rfind("barrier-", 0) == 0)
-            payoff =
-                barrier_payoff(type, barrier_type(), K, barrier, s, rebate, rr, tt);
-        else if (instrument == "asian-arith")
-            payoff = [phi = type_sign(type), K = K](const std::vector<double>& p) {
-                double sum = 0;
-                for (double x : p) sum += x;
-                return std::max(phi * (sum / p.size() - K), 0.0);
-            };
-        else if (instrument == "asian-geo")
-            payoff = geometric_asian_payoff(type, K);
-        else if (instrument == "lookback-float")
-            payoff = lookback_payoff(type, StrikeStyle::Floating, 0.0, s);
-        else if (instrument == "lookback-fixed")
-            payoff = lookback_payoff(type, StrikeStyle::Fixed, K, s);
-        else
-            throw std::runtime_error("instrument '" + instrument +
-                                     "' not supported under heston");
-        return mc_heston(payoff, s, tt, rr, q, heston, cfg).price;
+        return mc_heston(make_path_payoff(payoff_kind(), payoff_params(s, rr, tt)),
+                         s, tt, rr, q, heston, cfg)
+            .price;
     }
 };
 

@@ -286,41 +286,37 @@ PYBIND11_MODULE(_opal, m) {
         [](const std::string& t, double S, double K, double T, double r,
            double vol, double q, const std::string& payoff, std::size_t paths,
            int steps, std::uint64_t seed, double barrier,
-           const std::string& barrier_type, double cash) {
+           const std::string& barrier_type, double cash, double rebate) {
             McConfig cfg;
             cfg.paths = paths;
             cfg.steps = steps;
             cfg.seed = seed;
             OptionType ot = parse_type(t);
-            if (payoff == "vanilla") {
-                cfg.steps = 1;
-                return mc_gbm(vanilla_payoff(ot, K), S, T, r, q, vol, cfg);
-            }
-            if (payoff == "digital") {
-                cfg.steps = 1;
-                return mc_gbm(digital_payoff(ot, K, cash), S, T, r, q, vol, cfg);
-            }
+            // asian-arith uses the control-variate engine, not a plain payoff.
             if (payoff == "asian-arith")
                 return mc_arithmetic_asian(ot, S, K, T, r, q, vol, cfg);
-            if (payoff == "asian-geo")
-                return mc_gbm(geometric_asian_payoff(ot, K), S, T, r, q, vol, cfg);
-            if (payoff == "lookback-fixed")
-                return mc_gbm(lookback_payoff(ot, StrikeStyle::Fixed, K, S), S, T,
-                              r, q, vol, cfg);
-            if (payoff == "lookback-float")
-                return mc_gbm(lookback_payoff(ot, StrikeStyle::Floating, 0.0, S),
-                              S, T, r, q, vol, cfg);
-            if (payoff == "barrier")
-                return mc_gbm(barrier_payoff(ot, parse_barrier(barrier_type), K,
-                                             barrier, S),
-                              S, T, r, q, vol, cfg);
-            throw std::invalid_argument("unknown payoff '" + payoff + "'");
+            // All other payoffs share the library's path-payoff factory so the
+            // CLI and Python bindings stay in lock-step (incl. barrier rebate
+            // accrual via r/T).
+            if (payoff == "vanilla" || payoff == "digital") cfg.steps = 1;
+            PayoffParams pp;
+            pp.type = ot;
+            pp.K = K;
+            pp.cash = cash;
+            pp.S0 = S;
+            pp.barrier = barrier;
+            pp.rebate = rebate;
+            pp.r = r;
+            pp.T = T;
+            if (payoff == "barrier") pp.barrier_type = parse_barrier(barrier_type);
+            return mc_gbm(make_path_payoff(payoff, pp), S, T, r, q, vol, cfg);
         },
         py::arg("option_type"), py::arg("spot"), py::arg("strike"),
         py::arg("expiry"), py::arg("rate"), py::arg("vol"), py::arg("div") = 0.0,
         py::arg("payoff") = "vanilla", py::arg("paths") = 100000,
         py::arg("steps") = 252, py::arg("seed") = 42, py::arg("barrier") = 0.0,
         py::arg("barrier_type") = "down-out", py::arg("cash") = 1.0,
+        py::arg("rebate") = 0.0,
         "Monte Carlo with antithetic variates; control variate for "
         "asian-arith. Returns McResult(price, std_error).");
 

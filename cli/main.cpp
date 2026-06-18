@@ -260,13 +260,14 @@ void cmd_price(const Args& a, bool with_greeks) {
     rep.add("expiry_years", t.T, 6);
 
     if (with_greeks) {
-        // First-class Heston risk for the semi-analytic European: real spot,
-        // vega (parallel variance shift) and v0/theta/xi/rho sensitivities,
-        // rather than the generic vol-bump path (#14).
-        if (t.model == "heston" && t.instrument == "european" &&
-            t.resolved_method() == "analytic") {
-            HestonGreeks hg =
-                heston_greeks(t.type, t.S, t.K, t.T, t.r, t.q, t.heston);
+        // First-class Heston risk for every Heston instrument (#14): real spot
+        // greeks, a vega defined as a parallel variance shift, and v0/theta/xi/
+        // rho sensitivities. Europeans use the semi-analytic price; American/
+        // exotic instruments finite-difference the MC/LSMC price under common
+        // random numbers. This replaces the generic vol-bump path, which cannot
+        // express the model's own parameter risk.
+        if (t.model == "heston") {
+            HestonGreeks hg = t.heston_trade_greeks();
             rep.add("price", hg.price, 6);
             rep.add("delta", hg.delta, 6);
             rep.add("gamma", hg.gamma, 6);
@@ -283,6 +284,10 @@ void cmd_price(const Args& a, bool with_greeks) {
                              "rate)\n";
                 std::cout << "  (dV_dv0/dV_dtheta per unit variance; "
                              "dV_dxi/dV_drho per unit)\n";
+                if (t.is_monte_carlo())
+                    std::cout << "  (Monte Carlo greeks: finite differences "
+                                 "under common random numbers; gamma is "
+                                 "sampling-noise sensitive)\n";
             }
             return;
         }

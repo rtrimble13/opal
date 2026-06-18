@@ -21,6 +21,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 
 #include "opal/core/types.hpp"
 #include "opal/models/heston.hpp"
@@ -55,31 +56,39 @@ struct HestonBumpSizes {
     double rho_abs = 1e-4;          // absolute correlation bump
 };
 
-/// First-class greeks for a European option under Heston.
-inline HestonGreeks heston_greeks(OptionType type, double S, double K, double T,
-                                  double r, double q, const HestonParams& p,
-                                  const HestonBumpSizes& h = {}) {
-    auto price = [&](double s, double rr, double tt, const HestonParams& hp) {
-        return heston_price(type, s, K, tt, rr, q, hp);
-    };
+/// Pricer signature for Heston finite-difference greeks: a European-settled
+/// price as a function of (spot, time_to_expiry, rate, Heston params). The same
+/// random stream must back every call (common random numbers) when the pricer
+/// is Monte Carlo, so the bump differences are low-variance.
+using HestonPricerFn =
+    std::function<double(double S, double T, double r, const HestonParams& p)>;
 
+/// First-class Heston greeks for an arbitrary Heston pricer. Spot delta/gamma,
+/// the parallel-variance-shift vega, theta, rate rho and the v0/theta/xi/rho
+/// parameter sensitivities are all central finite differences over `f`. With a
+/// Monte Carlo `f` driven by a fixed seed (common random numbers) the first-order
+/// greeks are stable; the second-order gamma inherits the engine's sampling
+/// noise, as it does in any bump-and-revalue scheme.
+inline HestonGreeks heston_greeks_fd(const HestonPricerFn& f, double S, double T,
+                                     double r, const HestonParams& p,
+                                     const HestonBumpSizes& h = {}) {
     HestonGreeks g;
-    g.price = price(S, r, T, p);
+    g.price = f(S, T, r, p);
 
     // Spot delta / gamma (central second difference).
     double ds = S * h.spot_rel;
-    double up = price(S + ds, r, T, p);
-    double dn = price(S - ds, r, T, p);
+    double up = f(S + ds, T, r, p);
+    double dn = f(S - ds, T, r, p);
     g.delta = (up - dn) / (2.0 * ds);
     g.gamma = (up - 2.0 * g.price + dn) / (ds * ds);
 
     // Rate rho.
-    g.rho = (price(S, r + h.rate_abs, T, p) - price(S, r - h.rate_abs, T, p)) /
+    g.rho = (f(S, T, r + h.rate_abs, p) - f(S, T, r - h.rate_abs, p)) /
             (2.0 * h.rate_abs);
 
     // Theta (per year, decay convention; clamp the step near expiry).
     double dt = std::min(h.time_abs, 0.5 * T);
-    g.theta = (price(S, r, T - dt, p) - g.price) / dt;
+    g.theta = (f(S, T - dt, r, p) - g.price) / dt;
 
     // Vega: parallel shift of the variance level, anchored at the instantaneous
     // vol sqrt(v0). A vol bump +-hv maps to a variance change dvar applied to
@@ -95,13 +104,13 @@ inline HestonGreeks heston_greeks(OptionType type, double S, double K, double T,
     if (sig > hv) {
         double dvar_up = (sig + hv) * (sig + hv) - sig * sig;
         double dvar_dn = (sig - hv) * (sig - hv) - sig * sig;
-        g.vega = (price(S, r, T, shift_var(dvar_up)) -
-                  price(S, r, T, shift_var(dvar_dn))) /
+        g.vega = (f(S, T, r, shift_var(dvar_up)) -
+                  f(S, T, r, shift_var(dvar_dn))) /
                  (2.0 * hv);
     } else {
         // Near-zero vol: one-sided to avoid a sign flip in the squared bump.
         double dvar_up = (sig + hv) * (sig + hv) - sig * sig;
-        g.vega = (price(S, r, T, shift_var(dvar_up)) - g.price) / hv;
+        g.vega = (f(S, T, r, shift_var(dvar_up)) - g.price) / hv;
     }
 
     // Heston-parameter sensitivities. Each is a central difference with the
@@ -115,7 +124,7 @@ inline HestonGreeks heston_greeks(OptionType type, double S, double K, double T,
         HestonParams hpu = p, hpd = p;
         setter(hpu, pu);
         setter(hpd, pd);
-        return (price(S, r, T, hpu) - price(S, r, T, hpd)) / (pu - pd);
+        return (f(S, T, r, hpu) - f(S, T, r, hpd)) / (pu - pd);
     };
     g.dv0 = param_deriv(p.v0, 0.0, 1e9, h.v0_abs,
                         [](HestonParams& hp, double x) { hp.v0 = x; });
@@ -126,6 +135,18 @@ inline HestonGreeks heston_greeks(OptionType type, double S, double K, double T,
     g.drho = param_deriv(p.rho, -0.999999, 0.999999, h.rho_abs,
                         [](HestonParams& hp, double x) { hp.rho = x; });
     return g;
+}
+
+/// First-class greeks for a European option under the semi-analytic Heston
+/// price.
+inline HestonGreeks heston_greeks(OptionType type, double S, double K, double T,
+                                  double r, double q, const HestonParams& p,
+                                  const HestonBumpSizes& h = {}) {
+    HestonPricerFn f = [&](double s, double tt, double rr,
+                           const HestonParams& hp) {
+        return heston_price(type, s, K, tt, rr, q, hp);
+    };
+    return heston_greeks_fd(f, S, T, r, p, h);
 }
 
 }  // namespace opal

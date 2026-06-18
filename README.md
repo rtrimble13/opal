@@ -203,14 +203,18 @@ reported with its row and column, e.g.
 - Heston greeks (`heston_greeks` / `opal greeks --model heston`) report a
   "vega" defined as a parallel shift of the variance level (v0 and theta moved
   together, anchored at sqrt(v0)) alongside the per-parameter sensitivities
-  dV/dv0, dV/dtheta, dV/dxi and dV/drho (v0/theta per unit variance).
+  dV/dv0, dV/dtheta, dV/dxi and dV/drho (v0/theta per unit variance). European
+  options use the semi-analytic price; American and exotic Heston instruments
+  finite-difference the Monte Carlo / Longstaff–Schwartz price under common
+  random numbers, so first-order greeks are stable while gamma carries the
+  engine's sampling noise.
 - Barrier closed forms assume continuous monitoring; the Monte Carlo engine
   monitors discretely at each step (worth more for knock-outs) — use it to
   quantify discrete-monitoring premia.
 
 ## Validation
 
-`opal_tests` (157 checks) validates against Hull and Haug reference values,
+`opal_tests` (162 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
 model degeneracies (Heston → BS, SABR → flat lognormal), and

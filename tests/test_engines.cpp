@@ -173,6 +173,39 @@ TEST_CASE(monte_carlo_heston) {
     CHECK_CLOSE(mc.price, semi, 5.0 * mc.std_error + 0.05);
 }
 
+TEST_CASE(heston_greeks_mc_crn) {
+    // Finite-difference Heston greeks over a Monte Carlo vanilla pricer under
+    // common random numbers (a fixed seed) reproduce the analytic European
+    // greeks: the CRN-stable first-order risks in magnitude, the parameter
+    // sensitivities at least in sign. This exercises the engine-agnostic
+    // heston_greeks_fd used for American/exotic Heston risk.
+    double S = 100, K = 100, T = 1.0, r = 0.03, q = 0.0;
+    HestonParams p{0.04, 1.5, 0.04, 0.3, -0.5};
+    McConfig cfg;
+    cfg.paths = 60000;
+    cfg.steps = 64;
+    cfg.seed = 7;
+    cfg.antithetic = false;
+    HestonPricerFn f = [&](double s, double tt, double rr,
+                           const HestonParams& hp) {
+        McConfig c = cfg;  // fixed seed across bumps -> common random numbers
+        return mc_heston(vanilla_payoff(OptionType::Call, K), s, tt, rr, q, hp, c)
+            .price;
+    };
+    HestonBumpSizes h;  // larger bumps lift the signal above MC sampling noise
+    h.spot_rel = 1e-2;
+    h.vol_abs = 1e-2;
+    h.v0_abs = 2e-3;
+    h.theta_abs = 2e-3;
+    HestonGreeks g = heston_greeks_fd(f, S, T, r, p, h);
+    HestonGreeks a = heston_greeks(OptionType::Call, S, K, T, r, q, p);
+    CHECK_CLOSE(g.price, a.price, 0.3);
+    CHECK_CLOSE(g.delta, a.delta, 0.05);
+    CHECK_TRUE(g.vega > 0.0);
+    CHECK_TRUE(g.dv0 > 0.0);
+    CHECK_TRUE(g.dtheta > 0.0);
+}
+
 TEST_CASE(discrete_dividends) {
     double S = 100, K = 100, T = 1.0, r = 0.05, sig = 0.25;
     // Empty schedule reduces to plain BSM / plain LR tree.

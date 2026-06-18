@@ -316,6 +316,36 @@ struct EquityTrade {
             .std_error;
     }
 
+    /// First-class Heston greeks for this trade. A European priced
+    /// semi-analytically uses the exact `heston_greeks`; every other Heston
+    /// instrument (American/exotic, or a European forced onto Monte Carlo)
+    /// finite-differences the MC/Longstaff-Schwartz price under common random
+    /// numbers (a fixed seed), so the first-order greeks and parameter
+    /// sensitivities are stable. Only valid when model == "heston".
+    HestonGreeks heston_trade_greeks() const {
+        std::string m = resolved_method();
+        if (instrument == "european" && m == "analytic")
+            return opal::heston_greeks(type, S, K, T, r, q, heston);
+        McConfig cfg;
+        cfg.paths = static_cast<std::size_t>(paths);
+        cfg.steps = steps > 0 ? static_cast<int>(steps) : 252;
+        cfg.seed = static_cast<std::uint64_t>(seed);
+        HestonPricerFn f = [&](double s, double tt, double rr,
+                               const HestonParams& hp) {
+            // Fixed seed across bumps => common random numbers.
+            return price_heston(m, s, rr, tt, cfg, hp);
+        };
+        return opal::heston_greeks_fd(f, S, T, r, heston);
+    }
+
+    /// True when this trade is priced by a noisy Monte Carlo / LSMC engine, so
+    /// its greeks carry sampling noise (used to caption the risk report).
+    bool is_monte_carlo() const {
+        return model == "heston" ? !(instrument == "european" &&
+                                     resolved_method() == "analytic")
+                                 : resolved_method() == "mc";
+    }
+
 private:
     /// Canonical path-payoff kind for this instrument (CLI vocabulary ->
     /// library vocabulary). Throws for instruments with no path payoff.

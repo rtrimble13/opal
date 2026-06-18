@@ -432,21 +432,32 @@ void cmd_portfolio(const Args& a) {
         if (line.empty() || line[0] == '#') continue;
         std::vector<std::string> row = split_csv(line);
         ++n;
+        // Numeric cells parsed with row/column context so a malformed value
+        // points at the offending line instead of surfacing as a bare "stod".
+        auto num = [&](const std::string& c, const std::string& def) {
+            return parse_number(
+                cell(row, c, def),
+                "portfolio row " + std::to_string(n) + ", column '" + c + "'");
+        };
         EquityTrade t;
         t.instrument = cell(row, "instrument", "european");
         std::string ty = cell(row, "type", "call");
         t.type = (ty == "put" || ty == "p") ? OptionType::Put : OptionType::Call;
-        double qty = std::stod(cell(row, "quantity", "0"));
-        t.S = std::stod(cell(row, "spot", "0"));
-        t.K = std::stod(cell(row, "strike", "0"));
-        t.vol = std::stod(cell(row, "vol", "0"));
-        t.r = std::stod(cell(row, "rate", "0"));
-        t.q = std::stod(cell(row, "div", "0"));
-        t.T = std::stod(cell(row, "expiry", "0"));
+        double qty = num("quantity", "0");
+        t.S = num("spot", "0");
+        t.K = num("strike", "0");
+        t.vol = num("vol", "0");
+        t.r = num("rate", "0");
+        t.q = num("div", "0");
+        // Expiry accepts a year fraction or a YYYY-MM-DD date, matching the
+        // rest of the CLI.
+        t.T = parse_expiry(
+            cell(row, "expiry", "0"),
+            "portfolio row " + std::to_string(n) + ", column 'expiry'");
         std::string bar = cell(row, "barrier");
-        if (!bar.empty()) t.barrier = std::stod(bar);
+        if (!bar.empty()) t.barrier = num("barrier", "0");
         std::string reb = cell(row, "rebate");
-        if (!reb.empty()) t.rebate = std::stod(reb);
+        if (!reb.empty()) t.rebate = num("rebate", "0");
         std::string meth = cell(row, "method");
         if (!meth.empty()) t.method = meth;
 

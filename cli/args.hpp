@@ -20,6 +20,38 @@ inline std::time_t utc_mktime(std::tm* tm) {
 #endif
 }
 
+/// Parse a number, accepting a trailing "%" as a division by 100 (so "5%"
+/// becomes 0.05). `ctx` names the source in the error message. Shared by the
+/// argument parser and the portfolio CSV loader.
+inline double parse_number(const std::string& v, const std::string& ctx) {
+    try {
+        if (!v.empty() && v.back() == '%')
+            return std::stod(v.substr(0, v.size() - 1)) / 100.0;
+        return std::stod(v);
+    } catch (...) {
+        throw std::runtime_error(ctx + ": expected a number, got '" + v + "'");
+    }
+}
+
+/// Parse an expiry: a plain year fraction ("0.5") or a date "YYYY-MM-DD"
+/// converted to an ACT/365F year fraction from today.
+inline double parse_expiry(const std::string& v, const std::string& ctx) {
+    if (v.size() == 10 && v[4] == '-' && v[7] == '-') {
+        std::tm tm = {};
+        tm.tm_year = std::stoi(v.substr(0, 4)) - 1900;
+        tm.tm_mon = std::stoi(v.substr(5, 2)) - 1;
+        tm.tm_mday = std::stoi(v.substr(8, 2));
+        tm.tm_hour = 12;
+        std::time_t target = utc_mktime(&tm);
+        std::time_t now = std::time(nullptr);
+        double days = double(target - now) / 86400.0;
+        if (days <= 0.0)
+            throw std::runtime_error(ctx + ": date " + v + " is not in the future");
+        return days / 365.0;
+    }
+    return parse_number(v, ctx);
+}
+
 class Args {
 public:
     Args(int argc, char** argv) {
@@ -70,22 +102,7 @@ public:
         auto it = kv_.find(key);
         if (it == kv_.end())
             throw std::runtime_error("missing required option --" + key);
-        const std::string& v = it->second;
-        if (v.size() == 10 && v[4] == '-' && v[7] == '-') {
-            std::tm tm = {};
-            tm.tm_year = std::stoi(v.substr(0, 4)) - 1900;
-            tm.tm_mon = std::stoi(v.substr(5, 2)) - 1;
-            tm.tm_mday = std::stoi(v.substr(8, 2));
-            tm.tm_hour = 12;
-            std::time_t target = utc_mktime(&tm);
-            std::time_t now = std::time(nullptr);
-            double days = double(target - now) / 86400.0;
-            if (days <= 0.0)
-                throw std::runtime_error("--" + key + ": date " + v +
-                                         " is not in the future");
-            return days / 365.0;
-        }
-        return parse_num(key, v);
+        return parse_expiry(it->second, "--" + key);
     }
 
     /// Range option "lo:hi:step" -> vector of values (inclusive of hi).
@@ -116,15 +133,7 @@ public:
 
 private:
     static double parse_num(const std::string& key, const std::string& v) {
-        // Accept "5%" as 0.05 for rate-like inputs.
-        try {
-            if (!v.empty() && v.back() == '%')
-                return std::stod(v.substr(0, v.size() - 1)) / 100.0;
-            return std::stod(v);
-        } catch (...) {
-            throw std::runtime_error("option --" + key + ": expected a number, got '" +
-                                     v + "'");
-        }
+        return parse_number(v, "option --" + key);
     }
 
     void parse() {

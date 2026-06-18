@@ -214,11 +214,12 @@ reported with its row and column, e.g.
 
 ## Validation
 
-`opal_tests` (162 checks) validates against Hull and Haug reference values,
+`opal_tests` (167 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
-model degeneracies (Heston → BS, SABR → flat lognormal), and
-dense-monitoring Monte Carlo for the exotic closed forms. The Python suite
+model degeneracies (Heston → BS, SABR → flat lognormal), short-dated /
+high-vol-of-vol Heston pricing against Monte Carlo, and dense-monitoring
+Monte Carlo for the exotic closed forms. The Python suite
 (`python/tests/test_api.py`) re-checks the bindings end to end.
 
 ## Repository layout

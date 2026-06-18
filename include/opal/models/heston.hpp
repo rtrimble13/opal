@@ -62,9 +62,33 @@ inline double heston_prob(int j, double S, double K, double T, double r, double 
             std::exp(-i * phi * lnK) * heston_cf(phi, j, S, T, r, q, p) / (i * phi);
         return val.real();
     };
-    // The integrand decays like exp(-c*phi); 200 is far past machine epsilon
-    // for typical parameters.
-    double integral = math::integrate(integrand, 1e-8, 200.0, 1e-10);
+    // Integrate over [1e-8, inf) by extending the upper limit in fixed blocks
+    // until the tail is negligible. A hard cap (formerly 200) truncates far too
+    // early for short maturities or high vol-of-vol: the integrand decays like
+    // exp(-v0*T*phi^2/2), which is still O(1e-2) past phi = 200 when T is small,
+    // producing spurious mispricing in the OTM tail (issue #8 — verified against
+    // a high-accuracy reference and Monte Carlo; the absolute tolerance was
+    // confirmed adequate, only the truncation point was wrong). A block width of
+    // 200 keeps the long-maturity common case to ~3 quadrature calls, while
+    // short-dated / high-xi cases extend automatically. The block integral
+    // averages over the integrand's oscillation (period 2*pi/|ln(K/S)|), so two
+    // consecutive negligible blocks reliably signal the decayed tail.
+    const double block = 200.0;
+    const double tol = 1e-10;
+    const double upper_cap = 1e5;  // safety net; never reached for sane params
+    double integral = 0.0, lo = 1e-8;
+    int small_blocks = 0;
+    while (lo < upper_cap) {
+        double hi = lo + block;
+        double seg = math::integrate(integrand, lo, hi, tol);
+        integral += seg;
+        lo = hi;
+        if (std::fabs(seg) < tol) {
+            if (++small_blocks >= 2) break;
+        } else {
+            small_blocks = 0;
+        }
+    }
     return 0.5 + integral / math::PI;
 }
 

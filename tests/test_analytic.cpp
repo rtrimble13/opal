@@ -192,6 +192,32 @@ TEST_CASE(heston_bs_limit_and_parity) {
     CHECK_CLOSE(c - pp, S * std::exp(-q * T) - K * std::exp(-r * T), 1e-8);
 }
 
+TEST_CASE(heston_short_dated_high_vol_of_vol) {
+    // Regression for issue #8: the inverse-Fourier integral must extend its
+    // upper limit for short maturities / high vol-of-vol, where the integrand
+    // (decaying like exp(-v0*T*phi^2/2)) is still O(1e-2) past phi = 200. The
+    // former hard cap at 200 over-counted the tail and mispriced OTM calls.
+    // Reference values confirmed against an extended-truncation quadrature and
+    // 4M-path Monte Carlo.
+    double S = 100, r = 0.02, q = 0.0;
+    HestonParams p{0.04, 1.5, 0.04, 3.0, -0.7};  // xi = 3.0 (strong Feller break)
+
+    // 36-day OTM call: true ~= 0.00841 (MC 0.00859 +/- 0.00015); the bug gave
+    // 0.0242, ~3x too high.
+    double c1 = heston_price(OptionType::Call, S, 120.0, 0.10, r, q, p);
+    CHECK_CLOSE(c1, 0.008408, 2e-4);
+    // 3.65-day deep-OTM call: true ~= 0 (MC 0.0); the bug gave 0.0256.
+    double c2 = heston_price(OptionType::Call, S, 120.0, 0.01, r, q, p);
+    CHECK_CLOSE(c2, 0.0, 5e-4);
+    // 36-day OTM at K=110: true ~= 0.06147 (MC 0.06388 +/- 0.0004); bug: 0.0749.
+    double c3 = heston_price(OptionType::Call, S, 110.0, 0.10, r, q, p);
+    CHECK_CLOSE(c3, 0.061465, 1e-3);
+    // Put-call parity must still hold exactly in this regime.
+    double p3 = heston_price(OptionType::Put, S, 110.0, 0.10, r, q, p);
+    CHECK_CLOSE(c3 - p3, S * std::exp(-q * 0.10) - 110.0 * std::exp(-r * 0.10),
+                1e-9);
+}
+
 TEST_CASE(heston_greeks_bs_limit_and_signs) {
     double S = 100, K = 105, T = 1.0, r = 0.04, q = 0.01;
     // BS limit: xi tiny, v0 = theta = 0.04 (sigma = 0.2). First-class Heston

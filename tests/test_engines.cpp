@@ -192,15 +192,16 @@ TEST_CASE(heston_greeks_mc_crn) {
         return mc_heston(vanilla_payoff(OptionType::Call, K), s, tt, rr, q, hp, c)
             .price;
     };
-    HestonBumpSizes h;  // larger bumps lift the signal above MC sampling noise
+    // Mirror EquityTrade::mc_heston_bumps() so the shipped CLI configuration is
+    // what gets validated: a wider spot bump for a usable gamma, defaults
+    // elsewhere (common random numbers keep the first-order risks stable).
+    HestonBumpSizes h;
     h.spot_rel = 1e-2;
-    h.vol_abs = 1e-2;
-    h.v0_abs = 2e-3;
-    h.theta_abs = 2e-3;
     HestonGreeks g = heston_greeks_fd(f, S, T, r, p, h);
     HestonGreeks a = heston_greeks(OptionType::Call, S, K, T, r, q, p);
     CHECK_CLOSE(g.price, a.price, 0.3);
     CHECK_CLOSE(g.delta, a.delta, 0.05);
+    CHECK_CLOSE(g.gamma, a.gamma, 5e-3);  // CRN gamma at the shipped bump
     CHECK_TRUE(g.vega > 0.0);
     CHECK_TRUE(g.dv0 > 0.0);
     CHECK_TRUE(g.dtheta > 0.0);

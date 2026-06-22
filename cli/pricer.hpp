@@ -28,6 +28,22 @@ struct EquityTrade {
 
     DividendSchedule dividends;
     HestonParams heston{0.04, 1.5, 0.04, 0.3, -0.5};
+    SabrParams sabr{0.2, 1.0, 0.0, 0.0};
+    bool has_sabr = false;  // drive vol off a calibrated SABR smile (#15)
+
+    /// SABR smile for this trade's expiry; the forward is the spot's forward
+    /// (or the spot itself for the forward-based black76 model).
+    SabrSmile sabr_smile() const {
+        double fwd = (model == "black76") ? S : S * std::exp((r - q) * T);
+        return SabrSmile{fwd, T, sabr};
+    }
+
+    /// SABR smile vol for `strike` at a (possibly shifted) `spot` — used by the
+    /// chain (vary strike) and scenario (vary spot) commands.
+    double sabr_vol_at(double spot, double strike) const {
+        double fwd = (model == "black76") ? spot : spot * std::exp((r - q) * T);
+        return sabr_lognormal_vol(fwd, strike, T, sabr);
+    }
 
     static EquityTrade from_args(const Args& a) {
         EquityTrade t;
@@ -48,7 +64,32 @@ struct EquityTrade {
         t.r = a.get_num("rate", 0.0);
         t.q = a.get_num("div", 0.0);
         t.vol = a.get_num("vol", 0.0);
-        if (t.model != "heston" && t.vol <= 0.0)
+
+        // --sabr alpha:beta:rho:nu drives the vol off a calibrated SABR smile:
+        // each strike (and, in scenario, each shifted forward) is priced at its
+        // smile vol rather than a single flat --vol (#15).
+        std::string sabrspec = a.get_str("sabr");
+        if (!sabrspec.empty()) {
+            double p[4];
+            std::size_t pos = 0;
+            for (int i = 0; i < 4; ++i) {
+                std::size_t colon = sabrspec.find(':', pos);
+                if ((i < 3) == (colon == std::string::npos))
+                    throw std::runtime_error(
+                        "--sabr expects alpha:beta:rho:nu, got '" + sabrspec + "'");
+                p[i] = parse_number(
+                    sabrspec.substr(pos, colon == std::string::npos
+                                             ? std::string::npos
+                                             : colon - pos),
+                    "--sabr alpha:beta:rho:nu");
+                pos = colon == std::string::npos ? colon : colon + 1;
+            }
+            t.has_sabr = true;
+            t.sabr = SabrParams{p[0], p[1], p[2], p[3]};
+            // Anchor the trade vol at the smile vol for its own strike.
+            t.vol = t.sabr_smile().vol(t.K);
+        }
+        if (t.model != "heston" && t.vol <= 0.0 && !t.has_sabr)
             throw std::runtime_error("missing required option --vol");
 
         t.barrier = a.get_num("barrier", 0.0);

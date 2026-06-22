@@ -30,6 +30,7 @@
 #include "opal/analytics/implied_vol.hpp"
 #include "opal/analytics/greeks.hpp"
 #include "opal/analytics/heston_greeks.hpp"
+#include "opal/analytics/vol_surface.hpp"
 
 #include "opal/rates/curve.hpp"
 #include "opal/rates/cap_floor.hpp"

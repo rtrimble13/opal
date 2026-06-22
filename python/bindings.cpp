@@ -148,6 +148,16 @@ PYBIND11_MODULE(_opal, m) {
         .def("vol", &VolSurface::vol, py::arg("strike"), py::arg("expiry"),
              "Implied lognormal vol at (strike, expiry).");
 
+    py::class_<SabrCalibration>(m, "SabrCalibration")
+        .def_readonly("params", &SabrCalibration::params)
+        .def_readonly("rmse", &SabrCalibration::rmse)
+        .def_readonly("converged", &SabrCalibration::converged);
+
+    py::class_<HestonCalibration>(m, "HestonCalibration")
+        .def_readonly("params", &HestonCalibration::params)
+        .def_readonly("rmse", &HestonCalibration::rmse)
+        .def_readonly("converged", &HestonCalibration::converged);
+
     py::class_<HullWhiteParams>(m, "HullWhiteParams")
         .def(py::init([](double a, double sigma) {
                  return HullWhiteParams{a, sigma};
@@ -583,6 +593,30 @@ PYBIND11_MODULE(_opal, m) {
         },
         py::arg("option_type"), py::arg("forward"), py::arg("strike"),
         py::arg("expiry"), py::arg("rate"), py::arg("params"));
+
+    m.def(
+        "calibrate_sabr",
+        [](double forward, double expiry, const std::vector<double>& strikes,
+           const std::vector<double>& market_vols, double beta) {
+            return calibrate_sabr(forward, expiry, strikes, market_vols, beta);
+        },
+        py::arg("forward"), py::arg("expiry"), py::arg("strikes"),
+        py::arg("market_vols"), py::arg("beta") = 1.0,
+        "Fit SABR (alpha, rho, nu; beta fixed) to a quoted lognormal-vol smile. "
+        "Returns SabrCalibration(params, rmse, converged).");
+
+    m.def(
+        "calibrate_heston",
+        [](const std::string& t, double S, double r, double q,
+           const std::vector<double>& strikes, const std::vector<double>& expiries,
+           const std::vector<double>& market_prices) {
+            return calibrate_heston(parse_type(t), S, r, q, strikes, expiries,
+                                    market_prices);
+        },
+        py::arg("option_type"), py::arg("spot"), py::arg("rate"), py::arg("div"),
+        py::arg("strikes"), py::arg("expiries"), py::arg("market_prices"),
+        "Fit Heston {v0,kappa,theta,xi,rho} to European call/put quotes (parallel "
+        "strikes/expiries/prices arrays). Returns HestonCalibration.");
 
     // ----- rates ------------------------------------------------------------
     m.def(

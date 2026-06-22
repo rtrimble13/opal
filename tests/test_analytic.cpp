@@ -504,3 +504,40 @@ TEST_CASE(vol_surface_smile_and_interpolation) {
     double expected = std::sqrt((w1 + frac * (w2 - w1)) / 1.0);
     CHECK_CLOSE(surf.vol(100.0, 1.0), expected, 1e-12);
 }
+
+TEST_CASE(sabr_calibration_roundtrip) {
+    // Generate an exact SABR smile, then recover the parameters from it.
+    double F = 100.0, T = 1.0, beta = 0.5;
+    SabrParams truth{2.0, beta, -0.3, 0.4};  // alpha=2 => ~20% ATM at beta=0.5
+    std::vector<double> strikes{80, 90, 100, 110, 120}, vols;
+    for (double k : strikes) vols.push_back(sabr_lognormal_vol(F, k, T, truth));
+    SabrCalibration cal = calibrate_sabr(F, T, strikes, vols, beta);
+    CHECK_TRUE(cal.converged);
+    CHECK_TRUE(cal.rmse < 1e-5);
+    CHECK_CLOSE(cal.params.alpha, truth.alpha, 5e-3);
+    CHECK_CLOSE(cal.params.rho, truth.rho, 5e-3);
+    CHECK_CLOSE(cal.params.nu, truth.nu, 5e-3);
+}
+
+TEST_CASE(heston_calibration_roundtrip) {
+    // Generate exact Heston prices, then recover a fit that reprices them.
+    double S = 100, r = 0.03, q = 0.0;
+    HestonParams truth{0.04, 1.5, 0.05, 0.4, -0.5};
+    std::vector<double> strikes, expiries, prices;
+    for (double T : {0.5, 1.0}) {
+        for (double K : {95.0, 105.0}) {
+            strikes.push_back(K);
+            expiries.push_back(T);
+            prices.push_back(heston_price(OptionType::Call, S, K, T, r, q, truth));
+        }
+    }
+    HestonCalibration cal = calibrate_heston(
+        OptionType::Call, S, r, q, strikes, expiries, prices,
+        HestonParams{0.05, 1.0, 0.04, 0.5, -0.3});  // perturbed start
+    // The fit reprices the quotes tightly (the operational goal of calibration).
+    CHECK_TRUE(cal.rmse < 1e-2);
+    // Calibrated prices reproduce the market.
+    double p = heston_price(OptionType::Call, S, 100.0, 1.0, r, q, cal.params);
+    double mkt = heston_price(OptionType::Call, S, 100.0, 1.0, r, q, truth);
+    CHECK_CLOSE(p, mkt, 0.05);
+}

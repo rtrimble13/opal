@@ -157,6 +157,31 @@ def test_sabr():
     approx(opal.sabr_vol(100, 90, 2.0, p), 0.25, 1e-6)
 
 
+def test_calibration_roundtrip():
+    # SABR: recover parameters from an exact synthetic smile.
+    truth = opal.SabrParams(alpha=2.0, beta=0.5, rho=-0.3, nu=0.4)
+    strikes = [80.0, 90.0, 100.0, 110.0, 120.0]
+    vols = [opal.sabr_vol(100.0, k, 1.0, truth) for k in strikes]
+    cal = opal.calibrate_sabr(forward=100.0, expiry=1.0, strikes=strikes,
+                              market_vols=vols, beta=0.5)
+    assert cal.rmse < 1e-5
+    approx(cal.params.alpha, 2.0, 5e-3)
+    approx(cal.params.rho, -0.3, 5e-3)
+    approx(cal.params.nu, 0.4, 5e-3)
+    # Heston: a fit that reprices exact synthetic quotes.
+    hp = opal.HestonParams(v0=0.04, kappa=1.5, theta=0.05, xi=0.4, rho=-0.5)
+    ks, ts, prices = [], [], []
+    for T in (0.5, 1.0):
+        for K in (95.0, 105.0):
+            ks.append(K)
+            ts.append(T)
+            prices.append(opal.heston_price("call", spot=100.0, strike=K, expiry=T,
+                                            rate=0.03, div=0.0, params=hp))
+    hc = opal.calibrate_heston("call", spot=100.0, rate=0.03, div=0.0, strikes=ks,
+                               expiries=ts, market_prices=prices)
+    assert hc.rmse < 1e-2
+
+
 def test_rates():
     curve = opal.DiscountCurve(0.04)
     approx(curve.discount(2.0), math.exp(-0.08), 1e-12)

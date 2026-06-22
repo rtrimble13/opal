@@ -37,6 +37,8 @@ from opal._opal import (  # noqa: F401
     SabrParams,
     SabrSmile,
     VolSurface,
+    SabrCalibration,
+    HestonCalibration,
     HullWhiteParams,
     DiscountCurve,
     SwaptionResult,
@@ -78,6 +80,9 @@ from opal._opal import (  # noqa: F401
     sabr_vol,
     sabr_normal_vol,
     sabr_price,
+    # calibration
+    calibrate_sabr,
+    calibrate_heston,
     # rates
     cap_floor_price,
     cap_floor_price_ois,
@@ -93,8 +98,8 @@ from opal._opal import (  # noqa: F401
 
 __all__ = [
     "Greeks", "HestonGreeks", "McResult", "HestonParams", "SabrParams",
+    "SabrSmile", "VolSurface", "SabrCalibration", "HestonCalibration",
     "HullWhiteParams",
-    "SabrSmile", "VolSurface",
     "DiscountCurve", "SwaptionResult", "CapletDetail", "CapFloorResult",
     "bs_price", "bs_greeks", "black76_price", "bachelier_price",
     "implied_vol", "implied_vol_bachelier",
@@ -106,7 +111,7 @@ __all__ = [
     "binomial_price", "trinomial_price", "pde_price", "mc_price", "mc_custom",
     "lsmc_price", "lsmc_heston_price",
     "heston_price", "heston_greeks", "heston_mc", "sabr_vol",
-    "sabr_normal_vol", "sabr_price",
+    "sabr_normal_vol", "sabr_price", "calibrate_sabr", "calibrate_heston",
     "cap_floor_price", "cap_floor_price_ois", "swaption_price",
     "swaption_price_ois", "sabr_swaption_price",
     "hw_zcb_option", "hw_caplet", "hw_floorlet", "hw_cap",

@@ -46,7 +46,8 @@ European payer/receiver swaptions; zero-coupon bond options. Arbitrary path-depe
 | Longstaff–Schwartz | American exercise by least-squares Monte Carlo under GBM and Heston (variance in the regression basis) |
 
 **Analytics**: implied vol (Newton + Brent safeguarded) for BSM/Black-76/
-Bachelier, analytic and bump-and-revalue greeks, scenario grids, option
+Bachelier, analytic and bump-and-revalue greeks, SABR and Heston calibration
+(least-squares fit to a quoted smile / price grid), scenario grids, option
 chains, portfolio aggregation.
 
 ## Build
@@ -190,6 +191,13 @@ smile.vol(90), smile.vol(110)                       # skew: lower strike richer
 surf = opal.VolSurface([opal.SabrSmile(100, 0.5, sp), opal.SabrSmile(100, 2.0, sp)])
 surf.vol(strike=95, expiry=1.0)                     # interpolated in total variance
 
+# Calibration: recover model parameters from a quoted market (the inverse of pricing)
+strikes = [80, 90, 100, 110, 120]
+vols = [0.27, 0.24, 0.22, 0.215, 0.22]                       # a quoted smile
+cal = opal.calibrate_sabr(forward=100, expiry=1.0, strikes=strikes, market_vols=vols, beta=0.5)
+cal.params.alpha, cal.params.rho, cal.params.nu, cal.rmse    # fitted SABR + fit quality
+# opal.calibrate_heston("call", spot, rate, div, strikes, expiries, market_prices) -> HestonCalibration
+
 curve = opal.DiscountCurve([1, 2, 5, 10], [0.042, 0.040, 0.039, 0.041])
 opal.swaption_price(curve, "payer", strike=0.04, vol=0.25, expiry=1.0, tenor=5.0)
 
@@ -255,7 +263,7 @@ reported with its row and column, e.g.
 
 ## Validation
 
-`opal_tests` (204 checks) validates against Hull and Haug reference values,
+`opal_tests` (211 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
 model degeneracies (Heston → BS, SABR → flat lognormal), short-dated /

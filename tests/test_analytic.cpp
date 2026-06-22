@@ -296,13 +296,13 @@ TEST_CASE(two_asset_rainbow_and_exchange) {
     CHECK_CLOSE(pmax + pmin, pv1 + pv2, 1e-9);
 
     // Put-call parity on the maximum: Cmax - Pmax = e^{-rT}E[max] - K e^{-rT}.
-    double exch = exchange_option_price(S1, S2, T, r, q1, q2, sig1, sig2, rho);
+    double exch = exchange_option_price(S1, S2, T, q1, q2, sig1, sig2, rho);
     double max_fwd = S2 * std::exp(-q2 * T) + exch;
     CHECK_CLOSE(cmax - pmax, max_fwd - K * std::exp(-r * T), 1e-9);
 
     // Exchange degenerates to a vanilla call: swap a deterministic asset 2
     // (sig2->0) that grows at r (q2=r) for asset 1 == call on S1 struck S2.
-    double exch_lim = exchange_option_price(100, 100, T, r, 0.0, r, sig1, 1e-9, 0.0);
+    double exch_lim = exchange_option_price(100, 100, T, 0.0, r, sig1, 1e-9, 0.0);
     CHECK_CLOSE(exch_lim, bsm_price(OptionType::Call, 100, 100, T, r, 0.0, sig1),
                 1e-9);
 
@@ -413,4 +413,69 @@ TEST_CASE(compound_geske) {
         sum += std::max(iv - K1, 0.0);
     }
     CHECK_CLOSE(std::exp(-r * t1) * sum / N, coc, 0.05);
+}
+
+TEST_CASE(partial_time_start_barrier) {
+    double S = 100, K = 100, T2 = 1.0, r = 0.05, q = 0.0, sig = 0.25, t1 = 0.5;
+    double Hd = 90.0, Hu = 115.0;
+
+    // Knock-in + knock-out over the same window/barrier == vanilla (exact).
+    double van = bsm_price(OptionType::Call, S, K, T2, r, q, sig);
+    double ko = partial_time_start_barrier_price(OptionType::Call,
+                                                 PartialBarrierType::DownOut, S, K,
+                                                 Hd, t1, T2, r, q, sig);
+    double ki = partial_time_start_barrier_price(OptionType::Call,
+                                                 PartialBarrierType::DownIn, S, K,
+                                                 Hd, t1, T2, r, q, sig);
+    CHECK_CLOSE(ko + ki, van, 1e-9);
+
+    // A far barrier almost never knocks: KO ~ vanilla.
+    double ko_far = partial_time_start_barrier_price(
+        OptionType::Call, PartialBarrierType::DownOut, S, K, 50.0, t1, T2, r, q, sig);
+    CHECK_CLOSE(ko_far, van, 1e-3);
+
+    // Barrier at/through the spot at inception: KO already dead, KI == vanilla.
+    CHECK_CLOSE(partial_time_start_barrier_price(OptionType::Call,
+                                                 PartialBarrierType::DownOut, S, K,
+                                                 100.0, t1, T2, r, q, sig),
+                0.0, 1e-12);
+
+    // Window-only monitoring knocks out less often than full-life continuous
+    // monitoring, so the partial-time KO is worth more than the full barrier.
+    double full_ko = barrier_price(OptionType::Call, BarrierType::DownOut, S, K, Hd,
+                                   T2, r, q, sig);
+    CHECK_TRUE(ko > full_ko);
+
+    // Monte Carlo cross-check, barrier monitored only on [0, t1]. The model is
+    // continuous-monitoring, so the MC uses a Brownian-bridge continuity
+    // correction (per-step no-crossing probability) to converge to the
+    // continuous price with coarse stepping instead of paying a discretization
+    // premium.
+    std::mt19937_64 rng(2024);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    const long N = 300000;
+    const int n1 = 100;
+    double dt = t1 / n1, dr = (r - q - 0.5 * sig * sig) * dt, vo = sig * std::sqrt(dt);
+    double tau = T2 - t1, drT = (r - q - 0.5 * sig * sig) * tau, voT = sig * std::sqrt(tau);
+    double v2dt = sig * sig * dt, lhd = std::log(Hd), lhu = std::log(Hu);
+    double sumDO = 0, sumUO = 0;
+    for (long p = 0; p < N; ++p) {
+        double x = std::log(S), wD = 1.0, wU = 1.0;
+        for (int i = 0; i < n1; ++i) {
+            double xp = x;
+            x += dr + vo * nd(rng);
+            if (xp <= lhd || x <= lhd) wD = 0.0;
+            else wD *= 1.0 - std::exp(-2.0 * (xp - lhd) * (x - lhd) / v2dt);
+            if (xp >= lhu || x >= lhu) wU = 0.0;
+            else wU *= 1.0 - std::exp(-2.0 * (lhu - xp) * (lhu - x) / v2dt);
+        }
+        double pay = std::max(std::exp(x + drT + voT * nd(rng)) - K, 0.0);
+        sumDO += wD * pay;
+        sumUO += wU * pay;
+    }
+    double disc = std::exp(-r * T2);
+    CHECK_CLOSE(disc * sumDO / N, ko, 0.05);
+    double ko_up = partial_time_start_barrier_price(
+        OptionType::Call, PartialBarrierType::UpOut, S, K, Hu, t1, T2, r, q, sig);
+    CHECK_CLOSE(disc * sumUO / N, ko_up, 0.05);
 }

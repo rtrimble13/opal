@@ -139,6 +139,17 @@ def test_two_asset_and_compound():
     inner = opal.bs_price("call", spot=100, strike=100, expiry=1.0, rate=0.05,
                           vol=0.25)
     approx(coc - poc, inner - 6 * math.exp(-0.05 * 0.5), 1e-9)
+    # Partial-time-start barrier: knock-out + knock-in == vanilla over the same
+    # window/barrier.
+    pko = opal.partial_time_barrier_price("call", "down-out", spot=100, strike=100,
+                                          barrier=90, window=0.5, expiry=1.0,
+                                          rate=0.05, vol=0.25)
+    pki = opal.partial_time_barrier_price("call", "down-in", spot=100, strike=100,
+                                          barrier=90, window=0.5, expiry=1.0,
+                                          rate=0.05, vol=0.25)
+    van = opal.bs_price("call", spot=100, strike=100, expiry=1.0, rate=0.05,
+                        vol=0.25)
+    approx(pko + pki, van, 1e-9)
 
 
 def test_sabr():

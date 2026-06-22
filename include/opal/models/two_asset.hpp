@@ -19,16 +19,15 @@
 namespace opal {
 
 /// Margrabe (1978) option to exchange asset 2 for asset 1; pays
-/// max(S1 - S2, 0) at T. Independent of the risk-free rate (it cancels).
-inline double exchange_option_price(double S1, double S2, double T, double r,
-                                    double q1, double q2, double sig1, double sig2,
+/// max(S1 - S2, 0) at T. Independent of the risk-free rate (the discount
+/// cancels), so no rate argument is taken.
+inline double exchange_option_price(double S1, double S2, double T, double q1,
+                                    double q2, double sig1, double sig2,
                                     double rho) {
     require(S1 > 0.0 && S2 > 0.0, "exchange: spots must be positive");
     require(sig1 >= 0.0 && sig2 >= 0.0, "exchange: vols must be non-negative");
     require(rho >= -1.0 && rho <= 1.0, "exchange: rho must be in [-1, 1]");
     require(T >= 0.0, "exchange: time to expiry must be non-negative");
-    (void)r;  // Margrabe is rate-independent (the discount cancels); r is kept
-              // in the signature for uniformity with the other two-asset models.
     double f1 = S1 * std::exp(-q1 * T);  // PV of receiving asset 1 at T
     double f2 = S2 * std::exp(-q2 * T);
     double sig = std::sqrt(sig1 * sig1 + sig2 * sig2 - 2.0 * rho * sig1 * sig2);
@@ -86,7 +85,7 @@ inline double option_on_max_price(OptionType type, double S1, double S2, double 
     double cmax = detail::stulz_calls(S1, S2, K, T, r, q1, q2, sig1, sig2, rho).cmax;
     if (type == OptionType::Call) return std::max(cmax, 0.0);
     // Put via parity: Pmax = Cmax - PV[max(S1,S2)] + K e^{-rT}.
-    double exch = exchange_option_price(S1, S2, T, r, q1, q2, sig1, sig2, rho);
+    double exch = exchange_option_price(S1, S2, T, q1, q2, sig1, sig2, rho);
     double max_fwd = S2 * std::exp(-q2 * T) + exch;  // e^{-rT} E[max(S1,S2)]
     return std::max(cmax - max_fwd + K * std::exp(-r * T), 0.0);
 }
@@ -103,7 +102,7 @@ inline double option_on_min_price(OptionType type, double S1, double S2, double 
     double cmin = detail::stulz_calls(S1, S2, K, T, r, q1, q2, sig1, sig2, rho).cmin;
     if (type == OptionType::Call) return std::max(cmin, 0.0);
     // Put via parity: Pmin = Cmin - PV[min(S1,S2)] + K e^{-rT}.
-    double exch = exchange_option_price(S1, S2, T, r, q1, q2, sig1, sig2, rho);
+    double exch = exchange_option_price(S1, S2, T, q1, q2, sig1, sig2, rho);
     double min_fwd = S1 * std::exp(-q1 * T) - exch;  // e^{-rT} E[min(S1,S2)]
     return std::max(cmin - min_fwd + K * std::exp(-r * T), 0.0);
 }

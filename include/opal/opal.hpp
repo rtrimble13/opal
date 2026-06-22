@@ -20,6 +20,7 @@
 #include "opal/models/sabr.hpp"
 #include "opal/models/two_asset.hpp"
 #include "opal/models/compound.hpp"
+#include "opal/models/partial_barrier.hpp"
 
 #include "opal/engines/lattice.hpp"
 #include "opal/engines/lsmc.hpp"

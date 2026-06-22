@@ -57,6 +57,7 @@ from opal._opal import (  # noqa: F401
     rainbow_option_price,
     two_asset_correlation_price,
     compound_option_price,
+    partial_time_barrier_price,
     # discrete cash dividends
     bs_discrete_div_price,
     binomial_discrete_div_price,
@@ -97,6 +98,7 @@ __all__ = [
     "digital_price", "barrier_price", "asian_price", "lookback_price",
     "exchange_option_price", "rainbow_option_price",
     "two_asset_correlation_price", "compound_option_price",
+    "partial_time_barrier_price",
     "bs_discrete_div_price", "binomial_discrete_div_price",
     "binomial_price", "trinomial_price", "pde_price", "mc_price", "mc_custom",
     "lsmc_price", "lsmc_heston_price",

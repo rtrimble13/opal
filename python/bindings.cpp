@@ -39,6 +39,15 @@ BarrierType parse_barrier(const std::string& s) {
         "barrier type must be one of down-in, down-out, up-in, up-out");
 }
 
+PartialBarrierType parse_partial_barrier(const std::string& s) {
+    if (s == "down-out") return PartialBarrierType::DownOut;
+    if (s == "up-out") return PartialBarrierType::UpOut;
+    if (s == "down-in") return PartialBarrierType::DownIn;
+    if (s == "up-in") return PartialBarrierType::UpIn;
+    throw std::invalid_argument(
+        "partial barrier type must be one of down-out, up-out, down-in, up-in");
+}
+
 }  // namespace
 
 PYBIND11_MODULE(_opal, m) {
@@ -268,14 +277,15 @@ PYBIND11_MODULE(_opal, m) {
     // ----- two-asset / compound analytics (bivariate normal) ----------------
     m.def(
         "exchange_option_price",
-        [](double S1, double S2, double T, double r, double q1, double q2,
-           double sig1, double sig2, double rho) {
-            return exchange_option_price(S1, S2, T, r, q1, q2, sig1, sig2, rho);
+        [](double S1, double S2, double T, double q1, double q2, double sig1,
+           double sig2, double rho) {
+            return exchange_option_price(S1, S2, T, q1, q2, sig1, sig2, rho);
         },
-        py::arg("spot1"), py::arg("spot2"), py::arg("expiry"), py::arg("rate") = 0.0,
-        py::arg("div1") = 0.0, py::arg("div2") = 0.0, py::arg("vol1") = 0.0,
-        py::arg("vol2") = 0.0, py::arg("rho") = 0.0,
-        "Margrabe (1978) option to exchange asset 2 for asset 1: max(S1-S2,0).");
+        py::arg("spot1"), py::arg("spot2"), py::arg("expiry"), py::arg("div1") = 0.0,
+        py::arg("div2") = 0.0, py::arg("vol1") = 0.0, py::arg("vol2") = 0.0,
+        py::arg("rho") = 0.0,
+        "Margrabe (1978) option to exchange asset 2 for asset 1: max(S1-S2,0). "
+        "Rate-independent, so no rate argument.");
 
     m.def(
         "rainbow_option_price",
@@ -324,6 +334,21 @@ PYBIND11_MODULE(_opal, m) {
         py::arg("vol") = 0.0,
         "Geske (1979) compound option: an outer option (expiry1, strike1) on an "
         "inner vanilla (expiry2>expiry1, strike2).");
+
+    m.def(
+        "partial_time_barrier_price",
+        [](const std::string& t, const std::string& bt, double S, double K,
+           double H, double window, double expiry, double r, double q,
+           double sigma) {
+            return partial_time_start_barrier_price(parse_type(t),
+                                                    parse_partial_barrier(bt), S, K,
+                                                    H, window, expiry, r, q, sigma);
+        },
+        py::arg("option_type"), py::arg("barrier_type"), py::arg("spot"),
+        py::arg("strike"), py::arg("barrier"), py::arg("window"), py::arg("expiry"),
+        py::arg("rate"), py::arg("div") = 0.0, py::arg("vol") = 0.0,
+        "Partial-time-start barrier: barrier monitored only on [0, window], "
+        "vanilla payoff at expiry. barrier_type in {down,up}-{out,in}.");
 
     // ----- numerical engines ------------------------------------------------
     m.def(

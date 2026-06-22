@@ -29,9 +29,9 @@ rebates; arithmetic and geometric Asians (fixed and floating strike,
 continuous and discrete monitoring); fixed- and floating-strike lookbacks
 (including seasoned positions via running extrema); two-asset analytics
 (Margrabe exchange, Stulz options on the max/min of two assets, two-asset
-correlation options) and compound options (Geske option-on-option); caps,
-floors, caplets, floorlets; European payer/receiver swaptions; zero-coupon
-bond options. Arbitrary path-dependent payoffs via the Monte Carlo engines
+correlation options), compound options (Geske option-on-option) and
+partial-time-start (window) barriers; caps, floors, caplets, floorlets;
+European payer/receiver swaptions; zero-coupon bond options. Arbitrary path-dependent payoffs via the Monte Carlo engines
 (including from Python).
 
 **Engines**
@@ -83,6 +83,7 @@ opal price --model heston -S 100 -K 100 -T 1 -r 3% --v0 0.04 --kappa 1.5 --theta
 opal price -i rainbow-max -t call -S 100 --spot2 95 -K 100 -T 1 -r 5% -v 25% --vol2 30% --rho 0.4
 opal price -i exchange -S 100 --spot2 95 -T 1 -r 5% -v 25% --vol2 30% --rho 0.4
 opal price -i compound --outer call --inner call -S 100 --strike1 6 --strike2 100 -T 0.5 --expiry2 1 -r 5% -v 25%
+opal price -i partial-down-out -t call -S 100 -K 100 -H 90 --window 0.5 -T 1 -r 5% -v 25%
 # First-class Heston risk: delta/gamma, vega (parallel variance shift) and
 # dV/dv0, dV/dtheta, dV/dxi, dV/drho sensitivities
 opal greeks --model heston -S 100 -K 105 -T 1 -r 4% --v0 0.05 --kappa 1.5 --theta 0.06 --xi 0.4 --rho -0.7
@@ -152,6 +153,9 @@ opal.rainbow_option_price("call", "max", spot1=100, spot2=95, strike=100,
                           expiry=1.0, rate=0.05, vol1=0.25, vol2=0.30, rho=0.4)
 opal.compound_option_price("call", "call", spot=100, strike1=6, strike2=100,
                            expiry1=0.5, expiry2=1.0, rate=0.05, vol=0.25)
+opal.partial_time_barrier_price("call", "down-out", spot=100, strike=100,
+                                barrier=90, window=0.5, expiry=1.0, rate=0.05,
+                                vol=0.25)
 
 # Monte Carlo with standard errors — including custom Python payoffs
 res = opal.mc_price("call", payoff="asian-arith", spot=100, strike=100,
@@ -227,7 +231,7 @@ reported with its row and column, e.g.
 
 ## Validation
 
-`opal_tests` (185 checks) validates against Hull and Haug reference values,
+`opal_tests` (191 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
 model degeneracies (Heston → BS, SABR → flat lognormal), short-dated /

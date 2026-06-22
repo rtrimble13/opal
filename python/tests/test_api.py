@@ -114,6 +114,44 @@ def test_heston_greeks():
     approx(fg.delta - pg.delta, math.exp(-0.01 * 1.0), 1e-5)
 
 
+def test_two_asset_and_compound():
+    common = dict(spot1=100, spot2=95, expiry=1.0, rate=0.05, div1=0.02,
+                  div2=0.04, vol1=0.25, vol2=0.30, rho=0.4)
+    # (max-K)+ + (min-K)+ == (S1-K)+ + (S2-K)+ for every state.
+    cmax = opal.rainbow_option_price("call", "max", strike=100, **common)
+    cmin = opal.rainbow_option_price("call", "min", strike=100, **common)
+    v1 = opal.bs_price("call", spot=100, strike=100, expiry=1.0, rate=0.05,
+                       div=0.02, vol=0.25)
+    v2 = opal.bs_price("call", spot=95, strike=100, expiry=1.0, rate=0.05,
+                       div=0.04, vol=0.30)
+    approx(cmax + cmin, v1 + v2, 1e-9)
+    # Correlation option with gate strike -> 0 reduces to a vanilla on asset 2.
+    corr = opal.two_asset_correlation_price("call", strike1=1e-8, strike2=100,
+                                            **common)
+    approx(corr, v2, 1e-6)
+    # Compound put-call parity on the outer option (same inner call).
+    coc = opal.compound_option_price("call", "call", spot=100, strike1=6,
+                                     strike2=100, expiry1=0.5, expiry2=1.0,
+                                     rate=0.05, vol=0.25)
+    poc = opal.compound_option_price("put", "call", spot=100, strike1=6,
+                                     strike2=100, expiry1=0.5, expiry2=1.0,
+                                     rate=0.05, vol=0.25)
+    inner = opal.bs_price("call", spot=100, strike=100, expiry=1.0, rate=0.05,
+                          vol=0.25)
+    approx(coc - poc, inner - 6 * math.exp(-0.05 * 0.5), 1e-9)
+    # Partial-time-start barrier: knock-out + knock-in == vanilla over the same
+    # window/barrier.
+    pko = opal.partial_time_barrier_price("call", "down-out", spot=100, strike=100,
+                                          barrier=90, window=0.5, expiry=1.0,
+                                          rate=0.05, vol=0.25)
+    pki = opal.partial_time_barrier_price("call", "down-in", spot=100, strike=100,
+                                          barrier=90, window=0.5, expiry=1.0,
+                                          rate=0.05, vol=0.25)
+    van = opal.bs_price("call", spot=100, strike=100, expiry=1.0, rate=0.05,
+                        vol=0.25)
+    approx(pko + pki, van, 1e-9)
+
+
 def test_sabr():
     p = opal.SabrParams(alpha=0.25, beta=1.0, rho=0.0, nu=1e-8)
     approx(opal.sabr_vol(100, 90, 2.0, p), 0.25, 1e-6)

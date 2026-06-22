@@ -33,6 +33,18 @@ EQUITY INSTRUMENTS  (--instrument / -i)
   barrier-up-in        barrier-up-out       asian-arith     asian-geo
   lookback-fixed       lookback-float
 
+TWO-ASSET / COMPOUND INSTRUMENTS  (price only; bivariate-normal closed forms)
+  exchange       Margrabe: exchange asset 2 for asset 1, max(S1-S2,0)
+  rainbow-max    Stulz: option on max(S1,S2)
+  rainbow-min    Stulz: option on min(S1,S2)
+  correlation    Pays on S2 vs --strike only if S1 crosses --trigger
+  compound       Geske: --outer/--inner option on an inner vanilla
+                 (second asset: --spot2 --vol2 --div2 --rho;
+                  compound: --strike1 --strike2 --expiry2)
+  partial-{down,up}-{out,in}
+                 Partial-time-start barrier: --barrier monitored only on
+                 [0, --window], vanilla payoff at -T (Heynen-Kat type A)
+
 RATES INSTRUMENTS
   cap        floor      caplet     floorlet    swaption    zcb-option
 
@@ -100,6 +112,10 @@ EXAMPLES
   opal price -i cap -K 4% -T 5 -r 4.2% -v 30% --freq 4
   opal price -i cap -K 4% -T 5 -r 4.2% --ois-rate 3.8% -v 30% --freq 4
   opal price -i swaption -t payer -K 4% -T 1 --tenor 5 -r 4% -v 25%
+  opal price -i rainbow-max -t call -S 100 --spot2 95 -K 100 -T 1 -r 5% \
+             -v 25% --vol2 30% --rho 0.4
+  opal price -i compound --outer call --inner call -S 100 --strike1 6 \
+             --strike2 100 -T 0.5 --expiry2 1 -r 5% -v 25%
   opal greeks -S 100 -K 100 -T 0.5 -r 5% -v 20%
   opal implied -S 100 -K 105 -T 0.5 -r 4% --price 3.85
   opal chain -S 100 -T 0.5 -r 4% -v 25% --strikes 80:120:5
@@ -242,11 +258,201 @@ Greeks trade_greeks(const EquityTrade& t) {
     return numerical_greeks(pricer, t.S, t.T, t.r, t.vol);
 }
 
+// ---------------------------------------------------------------------------
+// two-asset / compound analytics pricing
+// ---------------------------------------------------------------------------
+OptionType parse_opt_type(const std::string& s, const char* opt) {
+    if (s == "call" || s == "c") return OptionType::Call;
+    if (s == "put" || s == "p") return OptionType::Put;
+    throw std::runtime_error(std::string(opt) + " must be call or put, got '" + s +
+                             "'");
+}
+
+bool is_partial_barrier_instrument(const std::string& inst) {
+    return inst == "partial-down-out" || inst == "partial-up-out" ||
+           inst == "partial-down-in" || inst == "partial-up-in";
+}
+
+bool is_multi_asset_instrument(const std::string& inst) {
+    return inst == "exchange" || inst == "rainbow-max" || inst == "rainbow-min" ||
+           inst == "correlation" || inst == "compound" ||
+           is_partial_barrier_instrument(inst);
+}
+
+PartialBarrierType partial_barrier_type(const std::string& inst) {
+    if (inst == "partial-down-out") return PartialBarrierType::DownOut;
+    if (inst == "partial-up-out") return PartialBarrierType::UpOut;
+    if (inst == "partial-down-in") return PartialBarrierType::DownIn;
+    return PartialBarrierType::UpIn;  // partial-up-in
+}
+
+void cmd_price_multi(const Args& a, OutputFormat out, bool with_greeks) {
+    std::string inst = a.get_str("instrument");
+    double r = a.get_num("rate", 0.0);
+    double T = a.get_expiry();
+    double q1 = a.get_num("div", 0.0), q2 = a.get_num("div2", 0.0);
+    Report rep;
+    rep.add("instrument", inst);
+
+    // Bump-and-revalue greeks for these closed forms (no analytic greeks yet).
+    const double hs = 1e-4;   // relative spot bump
+    const double hv = 1e-4;   // absolute vol bump
+    const double hr = 1e-4;   // absolute rate / correlation bump
+    const double hT = 1.0 / 365.0;
+
+    if (is_partial_barrier_instrument(inst)) {
+        OptionType ty = parse_opt_type(a.get_str("type", "call"), "--type");
+        PartialBarrierType pb = partial_barrier_type(inst);
+        double S = a.require_num("spot"), K = a.require_num("strike");
+        double H = a.require_num("barrier");
+        double t1 = a.require_num("window");  // barrier window end (year fraction)
+        double q = a.get_num("div", 0.0), v = a.require_num("vol");
+        auto px = [&](double s, double vv, double rr, double tt) {
+            return partial_time_start_barrier_price(ty, pb, s, K, H, t1, tt, rr, q,
+                                                    vv);
+        };
+        rep.add("type", to_string(ty));
+        rep.add("barrier_type", to_string(pb));
+        rep.add("spot", S, 4);
+        rep.add("strike", K, 4);
+        rep.add("barrier", H, 4);
+        rep.add("window_end", t1, 6);
+        rep.add("expiry_years", T, 6);
+        double base = px(S, v, r, T);
+        rep.add("price", base, 6);
+        if (with_greeks) {
+            double ds = S * hs;
+            double up = px(S + ds, v, r, T), dn = px(S - ds, v, r, T);
+            double dt = std::min(hT, 0.5 * T);
+            rep.add("delta", (up - dn) / (2 * ds), 6);
+            rep.add("gamma", (up - 2 * base + dn) / (ds * ds), 6);
+            rep.add("vega", (px(S, v + hv, r, T) - px(S, v - hv, r, T)) / (2 * hv) /
+                                100.0, 6);
+            rep.add("theta", (px(S, v, r, T - dt) - base) / dt / 365.0, 6);
+            rep.add("rho", (px(S, v, r + hr, T) - px(S, v, r - hr, T)) / (2 * hr) /
+                               100.0, 6);
+        }
+    } else if (inst == "compound") {
+        OptionType outer = parse_opt_type(a.get_str("outer", "call"), "--outer");
+        OptionType inner = parse_opt_type(a.get_str("inner", "call"), "--inner");
+        double S = a.require_num("spot");
+        double K1 = a.require_num("strike1"), K2 = a.require_num("strike2");
+        double t1 = T;                         // outer expiry (-T)
+        double T2 = a.require_num("expiry2");  // inner expiry (year fraction)
+        double q = a.get_num("div", 0.0), v = a.require_num("vol");
+        auto px = [&](double s, double vv, double rr, double tt) {
+            return compound_option_price(outer, inner, s, K1, K2, tt, T2, rr, q, vv);
+        };
+        rep.add("outer", to_string(outer));
+        rep.add("inner", to_string(inner));
+        rep.add("spot", S, 4);
+        rep.add("outer_strike", K1, 4);
+        rep.add("inner_strike", K2, 4);
+        rep.add("outer_expiry", t1, 6);
+        rep.add("inner_expiry", T2, 6);
+        double base = px(S, v, r, t1);
+        rep.add("price", base, 6);
+        if (with_greeks) {
+            double ds = S * hs;
+            double up = px(S + ds, v, r, t1), dn = px(S - ds, v, r, t1);
+            double dt = std::min(hT, 0.5 * t1);
+            rep.add("delta", (up - dn) / (2 * ds), 6);
+            rep.add("gamma", (up - 2 * base + dn) / (ds * ds), 6);
+            rep.add("vega", (px(S, v + hv, r, t1) - px(S, v - hv, r, t1)) /
+                                (2 * hv) / 100.0, 6);
+            rep.add("theta", (px(S, v, r, t1 - dt) - base) / dt / 365.0, 6);
+            rep.add("rho", (px(S, v, r + hr, t1) - px(S, v, r - hr, t1)) /
+                               (2 * hr) / 100.0, 6);
+        }
+    } else {
+        // Two-asset instruments share one re-pricer over (S1,S2,v1,v2,rho,r,T).
+        OptionType ty = OptionType::Call;
+        if (inst != "exchange")
+            ty = parse_opt_type(a.get_str("type", "call"), "--type");
+        double S1 = a.require_num("spot"), S2 = a.require_num("spot2");
+        double v1 = a.require_num("vol"), v2 = a.require_num("vol2");
+        double rho = a.get_num("rho", 0.0);
+        double K = 0, K1 = 0, K2 = 0;
+        if (inst == "rainbow-max" || inst == "rainbow-min") {
+            K = a.require_num("strike");
+        } else if (inst == "correlation") {
+            K1 = a.require_num("trigger");
+            K2 = a.require_num("strike");
+        }
+        auto px = [&](double s1, double s2, double w1, double w2, double rh,
+                      double rr, double tt) {
+            if (inst == "exchange")
+                return exchange_option_price(s1, s2, tt, q1, q2, w1, w2, rh);
+            if (inst == "rainbow-max")
+                return option_on_max_price(ty, s1, s2, K, tt, rr, q1, q2, w1, w2, rh);
+            if (inst == "rainbow-min")
+                return option_on_min_price(ty, s1, s2, K, tt, rr, q1, q2, w1, w2, rh);
+            return two_asset_correlation_price(ty, s1, s2, K1, K2, tt, rr, q1, q2,
+                                               w1, w2, rh);
+        };
+        if (inst != "exchange") rep.add("type", to_string(ty));
+        rep.add("spot1", S1, 4);
+        rep.add("spot2", S2, 4);
+        if (inst == "rainbow-max" || inst == "rainbow-min") rep.add("strike", K, 4);
+        if (inst == "correlation") {
+            rep.add("trigger_strike_s1", K1, 4);
+            rep.add("payoff_strike_s2", K2, 4);
+        }
+        rep.add("rho", rho, 4);
+        rep.add("expiry_years", T, 6);
+        double base = px(S1, S2, v1, v2, rho, r, T);
+        rep.add("price", base, 6);
+        if (with_greeks) {
+            double d1 = S1 * hs, d2 = S2 * hs;
+            double u1 = px(S1 + d1, S2, v1, v2, rho, r, T);
+            double n1 = px(S1 - d1, S2, v1, v2, rho, r, T);
+            double u2 = px(S1, S2 + d2, v1, v2, rho, r, T);
+            double n2 = px(S1, S2 - d2, v1, v2, rho, r, T);
+            double dt = std::min(hT, 0.5 * T);
+            double rh_up = std::min(rho + hr, 1.0), rh_dn = std::max(rho - hr, -1.0);
+            rep.add("delta1", (u1 - n1) / (2 * d1), 6);
+            rep.add("delta2", (u2 - n2) / (2 * d2), 6);
+            rep.add("gamma1", (u1 - 2 * base + n1) / (d1 * d1), 6);
+            rep.add("gamma2", (u2 - 2 * base + n2) / (d2 * d2), 6);
+            rep.add("vega1", (px(S1, S2, v1 + hv, v2, rho, r, T) -
+                              px(S1, S2, v1 - hv, v2, rho, r, T)) /
+                                 (2 * hv) / 100.0, 6);
+            rep.add("vega2", (px(S1, S2, v1, v2 + hv, rho, r, T) -
+                              px(S1, S2, v1, v2 - hv, rho, r, T)) /
+                                 (2 * hv) / 100.0, 6);
+            rep.add("corr_sens", (px(S1, S2, v1, v2, rh_up, r, T) -
+                                  px(S1, S2, v1, v2, rh_dn, r, T)) /
+                                     (rh_up - rh_dn), 6);
+            rep.add("theta", (px(S1, S2, v1, v2, rho, r, T - dt) - base) / dt /
+                                 365.0, 6);
+            rep.add("rho_rate", (px(S1, S2, v1, v2, rho, r + hr, T) -
+                                 px(S1, S2, v1, v2, rho, r - hr, T)) /
+                                    (2 * hr) / 100.0, 6);
+        }
+    }
+    rep.print(out, with_greeks ? "Opal | risk report" : "Opal | " + inst);
+    if (with_greeks && out == OutputFormat::Table) {
+        if (inst == "compound" || is_partial_barrier_instrument(inst))
+            std::cout << "  (vega per vol pt, theta per day, rho per 1% rate; "
+                         "spot greeks w.r.t. the underlying asset)\n";
+        else
+            std::cout << "  (deltaN/gammaN/vegaN w.r.t. asset N; vegaN per vol "
+                         "pt; corr_sens per 1.00 rho; theta per day; rho_rate "
+                         "per 1% rate)\n";
+    }
+}
+
 void cmd_price(const Args& a, bool with_greeks) {
     OutputFormat out = parse_output(a.get_str("output", "table"));
     std::string inst = a.get_str("instrument", "european");
     if (is_rates_instrument(inst)) {
         cmd_price_rates(a, out);
+        return;
+    }
+    if (is_multi_asset_instrument(inst)) {
+        // Two-asset / compound analytics: price, or a bump-and-revalue greeks
+        // report (per-asset deltas/gammas/vegas for the two-asset payoffs).
+        cmd_price_multi(a, out, with_greeks);
         return;
     }
     EquityTrade t = EquityTrade::from_args(a);

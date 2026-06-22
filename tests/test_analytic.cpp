@@ -1,5 +1,7 @@
 // Validation of analytic models against textbook reference values and
 // no-arbitrage identities.
+#include <random>
+
 #include "opal/opal.hpp"
 #include "opal_test.hpp"
 
@@ -269,4 +271,211 @@ TEST_CASE(sabr_hagan) {
     double atm = sabr_lognormal_vol(0.03, 0.03, 1.0, skew);
     double near = sabr_lognormal_vol(0.03, 0.0300001, 1.0, skew);
     CHECK_CLOSE(near, atm, 1e-5);
+}
+
+TEST_CASE(two_asset_rainbow_and_exchange) {
+    double S1 = 100, S2 = 95, K = 100, T = 1.0, r = 0.05, q1 = 0.02, q2 = 0.04,
+           sig1 = 0.25, sig2 = 0.30, rho = 0.4;
+
+    // Exact identity: for every state {max,min} = {S1,S2} as a set, so
+    // (max-K)+ + (min-K)+ = (S1-K)+ + (S2-K)+. Hence call-on-max + call-on-min
+    // equals the two vanillas; likewise for puts.
+    double cmax = option_on_max_price(OptionType::Call, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double cmin = option_on_min_price(OptionType::Call, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double v1 = bsm_price(OptionType::Call, S1, K, T, r, q1, sig1);
+    double v2 = bsm_price(OptionType::Call, S2, K, T, r, q2, sig2);
+    CHECK_CLOSE(cmax + cmin, v1 + v2, 1e-9);
+    double pmax = option_on_max_price(OptionType::Put, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double pmin = option_on_min_price(OptionType::Put, S1, S2, K, T, r, q1, q2,
+                                      sig1, sig2, rho);
+    double pv1 = bsm_price(OptionType::Put, S1, K, T, r, q1, sig1);
+    double pv2 = bsm_price(OptionType::Put, S2, K, T, r, q2, sig2);
+    CHECK_CLOSE(pmax + pmin, pv1 + pv2, 1e-9);
+
+    // Put-call parity on the maximum: Cmax - Pmax = e^{-rT}E[max] - K e^{-rT}.
+    double exch = exchange_option_price(S1, S2, T, q1, q2, sig1, sig2, rho);
+    double max_fwd = S2 * std::exp(-q2 * T) + exch;
+    CHECK_CLOSE(cmax - pmax, max_fwd - K * std::exp(-r * T), 1e-9);
+
+    // Exchange degenerates to a vanilla call: swap a deterministic asset 2
+    // (sig2->0) that grows at r (q2=r) for asset 1 == call on S1 struck S2.
+    double exch_lim = exchange_option_price(100, 100, T, 0.0, r, sig1, 1e-9, 0.0);
+    CHECK_CLOSE(exch_lim, bsm_price(OptionType::Call, 100, 100, T, r, 0.0, sig1),
+                1e-9);
+
+    // Correlation option: with the condition strike K1 -> 0 the gate S1 > K1 is
+    // always met, so it reduces to a vanilla call on asset 2.
+    double corr_lim = two_asset_correlation_price(OptionType::Call, S1, S2, 1e-8, K,
+                                                  T, r, q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(corr_lim, bsm_price(OptionType::Call, S2, K, T, r, q2, sig2), 1e-6);
+    // Correlation put with gate K1 -> 0: the condition S1 < K1 never holds, so
+    // it is worthless.
+    double pcorr_lim = two_asset_correlation_price(OptionType::Put, S1, S2, 1e-8, K,
+                                                   T, r, q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(pcorr_lim, 0.0, 1e-7);
+
+    // Monte Carlo cross-check (fixed seed -> deterministic) of the absolute
+    // levels for max/min/exchange and the correlation option.
+    std::mt19937_64 rng(20260618);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    const long N = 400000;
+    double K1c = 90.0;  // correlation gate on S1
+    double d1 = (r - q1 - 0.5 * sig1 * sig1) * T, d2 = (r - q2 - 0.5 * sig2 * sig2) * T;
+    double w1 = sig1 * std::sqrt(T), w2 = sig2 * std::sqrt(T);
+    double sMax = 0, sMin = 0, sExch = 0, sCorr = 0, sCorrP = 0;
+    for (long n = 0; n < N; ++n) {
+        double z1 = nd(rng);
+        double z2 = rho * z1 + std::sqrt(1.0 - rho * rho) * nd(rng);
+        double s1 = S1 * std::exp(d1 + w1 * z1);
+        double s2 = S2 * std::exp(d2 + w2 * z2);
+        sMax += std::max(std::max(s1, s2) - K, 0.0);
+        sMin += std::max(std::min(s1, s2) - K, 0.0);
+        sExch += std::max(s1 - s2, 0.0);
+        if (s1 > K1c) sCorr += std::max(s2 - K, 0.0);
+        if (s1 < K1c) sCorrP += std::max(K - s2, 0.0);
+    }
+    double disc = std::exp(-r * T);
+    CHECK_CLOSE(disc * sMax / N, cmax, 0.08);
+    CHECK_CLOSE(disc * sMin / N, cmin, 0.08);
+    CHECK_CLOSE(disc * sExch / N, exch, 0.08);
+    double corr = two_asset_correlation_price(OptionType::Call, S1, S2, K1c, K, T, r,
+                                              q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(disc * sCorr / N, corr, 0.08);
+    double corr_put = two_asset_correlation_price(OptionType::Put, S1, S2, K1c, K, T,
+                                                  r, q1, q2, sig1, sig2, rho);
+    CHECK_CLOSE(disc * sCorrP / N, corr_put, 0.08);
+}
+
+TEST_CASE(compound_geske) {
+    double S = 100, K1 = 6.0, K2 = 100, t1 = 0.5, T2 = 1.0, r = 0.05, q = 0.0,
+           sig = 0.25;
+    double b = r - q;
+
+    // Compound put-call parity on the outer option (same inner call): holding
+    // call-on-call and shorting put-on-call locks in the inner option for K1 at
+    // t1, worth c - K1 e^{-r t1} today.
+    double coc = compound_option_price(OptionType::Call, OptionType::Call, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double poc = compound_option_price(OptionType::Put, OptionType::Call, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double c = gbs_price(OptionType::Call, S, K2, T2, r, b, sig);
+    CHECK_CLOSE(coc - poc, c - K1 * std::exp(-r * t1), 1e-9);
+    // Same parity for inner puts.
+    double cop = compound_option_price(OptionType::Call, OptionType::Put, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double pop = compound_option_price(OptionType::Put, OptionType::Put, S, K1, K2,
+                                       t1, T2, r, q, sig);
+    double p = gbs_price(OptionType::Put, S, K2, T2, r, b, sig);
+    CHECK_CLOSE(cop - pop, p - K1 * std::exp(-r * t1), 1e-9);
+
+    // K1 -> 0: a call-on-call is always exercised, so it equals the inner call.
+    double coc0 = compound_option_price(OptionType::Call, OptionType::Call, S, 1e-8,
+                                        K2, t1, T2, r, q, sig);
+    CHECK_CLOSE(coc0, c, 1e-5);
+
+    // Deeper-ITM inner put whose value at the spot exceeds K1: exercises the
+    // root-bracket expansion (the naive [lo, spot] bracket would have failed).
+    // Outer put-call parity must still hold exactly.
+    double Sl = 80.0;  // inner put (K2=100) worth ~20 > K1 = 6
+    double cop2 = compound_option_price(OptionType::Call, OptionType::Put, Sl, K1, K2,
+                                        t1, T2, r, q, sig);
+    double pop2 = compound_option_price(OptionType::Put, OptionType::Put, Sl, K1, K2,
+                                        t1, T2, r, q, sig);
+    double p2 = gbs_price(OptionType::Put, Sl, K2, T2, r, b, sig);
+    CHECK_CLOSE(cop2 - pop2, p2 - K1 * std::exp(-r * t1), 1e-9);
+
+    // Never-bracketed regime: K1 exceeds the inner put's maximum value
+    // (K2 e^{-r tau}). The call-on-put is worthless; the put-on-put is always
+    // exercised, worth K1 e^{-r t1} minus today's inner put.
+    double bigK1 = 200.0;
+    double cop3 = compound_option_price(OptionType::Call, OptionType::Put, S, bigK1,
+                                        K2, t1, T2, r, q, sig);
+    double pop3 = compound_option_price(OptionType::Put, OptionType::Put, S, bigK1,
+                                        K2, t1, T2, r, q, sig);
+    CHECK_CLOSE(cop3, 0.0, 1e-12);
+    CHECK_CLOSE(pop3,
+                bigK1 * std::exp(-r * t1) - gbs_price(OptionType::Put, S, K2, T2, r,
+                                                      b, sig),
+                1e-9);
+
+    // Monte Carlo cross-check: value the inner option at t1, pay max(.-K1,0).
+    std::mt19937_64 rng(99);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    const long N = 200000;
+    double drift = (r - q - 0.5 * sig * sig) * t1, w = sig * std::sqrt(t1);
+    double sum = 0;
+    for (long n = 0; n < N; ++n) {
+        double s = S * std::exp(drift + w * nd(rng));
+        double iv = gbs_price(OptionType::Call, s, K2, T2 - t1, r, b, sig);
+        sum += std::max(iv - K1, 0.0);
+    }
+    CHECK_CLOSE(std::exp(-r * t1) * sum / N, coc, 0.05);
+}
+
+TEST_CASE(partial_time_start_barrier) {
+    double S = 100, K = 100, T2 = 1.0, r = 0.05, q = 0.0, sig = 0.25, t1 = 0.5;
+    double Hd = 90.0, Hu = 115.0;
+
+    // Knock-in + knock-out over the same window/barrier == vanilla (exact).
+    double van = bsm_price(OptionType::Call, S, K, T2, r, q, sig);
+    double ko = partial_time_start_barrier_price(OptionType::Call,
+                                                 PartialBarrierType::DownOut, S, K,
+                                                 Hd, t1, T2, r, q, sig);
+    double ki = partial_time_start_barrier_price(OptionType::Call,
+                                                 PartialBarrierType::DownIn, S, K,
+                                                 Hd, t1, T2, r, q, sig);
+    CHECK_CLOSE(ko + ki, van, 1e-9);
+
+    // A far barrier almost never knocks: KO ~ vanilla.
+    double ko_far = partial_time_start_barrier_price(
+        OptionType::Call, PartialBarrierType::DownOut, S, K, 50.0, t1, T2, r, q, sig);
+    CHECK_CLOSE(ko_far, van, 1e-3);
+
+    // Barrier at/through the spot at inception: KO already dead, KI == vanilla.
+    CHECK_CLOSE(partial_time_start_barrier_price(OptionType::Call,
+                                                 PartialBarrierType::DownOut, S, K,
+                                                 100.0, t1, T2, r, q, sig),
+                0.0, 1e-12);
+
+    // Window-only monitoring knocks out less often than full-life continuous
+    // monitoring, so the partial-time KO is worth more than the full barrier.
+    double full_ko = barrier_price(OptionType::Call, BarrierType::DownOut, S, K, Hd,
+                                   T2, r, q, sig);
+    CHECK_TRUE(ko > full_ko);
+
+    // Monte Carlo cross-check, barrier monitored only on [0, t1]. The model is
+    // continuous-monitoring, so the MC uses a Brownian-bridge continuity
+    // correction (per-step no-crossing probability) to converge to the
+    // continuous price with coarse stepping instead of paying a discretization
+    // premium.
+    std::mt19937_64 rng(2024);
+    std::normal_distribution<double> nd(0.0, 1.0);
+    const long N = 300000;
+    const int n1 = 100;
+    double dt = t1 / n1, dr = (r - q - 0.5 * sig * sig) * dt, vo = sig * std::sqrt(dt);
+    double tau = T2 - t1, drT = (r - q - 0.5 * sig * sig) * tau, voT = sig * std::sqrt(tau);
+    double v2dt = sig * sig * dt, lhd = std::log(Hd), lhu = std::log(Hu);
+    double sumDO = 0, sumUO = 0;
+    for (long p = 0; p < N; ++p) {
+        double x = std::log(S), wD = 1.0, wU = 1.0;
+        for (int i = 0; i < n1; ++i) {
+            double xp = x;
+            x += dr + vo * nd(rng);
+            if (xp <= lhd || x <= lhd) wD = 0.0;
+            else wD *= 1.0 - std::exp(-2.0 * (xp - lhd) * (x - lhd) / v2dt);
+            if (xp >= lhu || x >= lhu) wU = 0.0;
+            else wU *= 1.0 - std::exp(-2.0 * (lhu - xp) * (lhu - x) / v2dt);
+        }
+        double pay = std::max(std::exp(x + drT + voT * nd(rng)) - K, 0.0);
+        sumDO += wD * pay;
+        sumUO += wU * pay;
+    }
+    double disc = std::exp(-r * T2);
+    CHECK_CLOSE(disc * sumDO / N, ko, 0.05);
+    double ko_up = partial_time_start_barrier_price(
+        OptionType::Call, PartialBarrierType::UpOut, S, K, Hu, t1, T2, r, q, sig);
+    CHECK_CLOSE(disc * sumUO / N, ko_up, 0.05);
 }

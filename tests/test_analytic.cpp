@@ -479,3 +479,28 @@ TEST_CASE(partial_time_start_barrier) {
         OptionType::Call, PartialBarrierType::UpOut, S, K, Hu, t1, T2, r, q, sig);
     CHECK_CLOSE(disc * sumUO / N, ko_up, 0.05);
 }
+
+TEST_CASE(vol_surface_smile_and_interpolation) {
+    SabrParams p{0.2, 1.0, -0.3, 0.4};
+    SabrSmile sm{100.0, 1.0, p};
+    // A smile serves the Hagan vol; negative rho => downside skew (lower
+    // strikes carry higher vol).
+    CHECK_CLOSE(sm.vol(100.0), sabr_lognormal_vol(100.0, 100.0, 1.0, p), 1e-12);
+    CHECK_TRUE(sm.vol(90.0) > sm.vol(110.0));
+
+    // Surface over two expiries; input order should not matter (sorted inside).
+    SabrSmile s1{100.0, 0.5, p}, s2{100.0, 2.0, p};
+    VolSurface surf({s2, s1});
+    // At a pillar the surface returns that smile's vol.
+    CHECK_CLOSE(surf.vol(100.0, 0.5), s1.vol(100.0), 1e-12);
+    CHECK_CLOSE(surf.vol(100.0, 2.0), s2.vol(100.0), 1e-12);
+    // Flat (in vol) extrapolation beyond the ends.
+    CHECK_CLOSE(surf.vol(100.0, 0.25), s1.vol(100.0), 1e-12);
+    CHECK_CLOSE(surf.vol(100.0, 3.0), s2.vol(100.0), 1e-12);
+    // Interior: linear interpolation of total variance vol^2*T.
+    double w1 = s1.vol(100.0) * s1.vol(100.0) * 0.5;
+    double w2 = s2.vol(100.0) * s2.vol(100.0) * 2.0;
+    double frac = (1.0 - 0.5) / (2.0 - 0.5);
+    double expected = std::sqrt((w1 + frac * (w2 - w1)) / 1.0);
+    CHECK_CLOSE(surf.vol(100.0, 1.0), expected, 1e-12);
+}

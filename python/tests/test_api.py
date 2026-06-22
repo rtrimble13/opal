@@ -227,6 +227,18 @@ def test_multi_curve_ois():
     assert abs(sw.forward_swap_rate - sw_single.forward_swap_rate) < 5e-4
 
 
+def test_vol_surface():
+    p = opal.SabrParams(alpha=0.2, beta=1.0, rho=-0.3, nu=0.4)
+    sm = opal.SabrSmile(forward=100.0, expiry=1.0, params=p)
+    approx(sm.vol(100.0), opal.sabr_vol(100.0, 100.0, 1.0, p), 1e-12)
+    assert sm.vol(90.0) > sm.vol(110.0)               # downside skew
+    s_short = opal.SabrSmile(100.0, 0.5, p)
+    surf = opal.VolSurface([opal.SabrSmile(100.0, 2.0, p), s_short])
+    # At a pillar the surface returns that pillar's own (expiry-dependent) vol.
+    approx(surf.vol(100.0, 0.5), s_short.vol(100.0), 1e-9)
+    approx(surf.vol(100.0, 0.25), s_short.vol(100.0), 1e-12)   # flat extrap below
+
+
 if __name__ == "__main__":
     fns = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for fn in fns:

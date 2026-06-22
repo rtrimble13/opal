@@ -35,6 +35,8 @@ from opal._opal import (  # noqa: F401
     McResult,
     HestonParams,
     SabrParams,
+    SabrSmile,
+    VolSurface,
     HullWhiteParams,
     DiscountCurve,
     SwaptionResult,
@@ -92,6 +94,7 @@ from opal._opal import (  # noqa: F401
 __all__ = [
     "Greeks", "HestonGreeks", "McResult", "HestonParams", "SabrParams",
     "HullWhiteParams",
+    "SabrSmile", "VolSurface",
     "DiscountCurve", "SwaptionResult", "CapletDetail", "CapFloorResult",
     "bs_price", "bs_greeks", "black76_price", "bachelier_price",
     "implied_vol", "implied_vol_bachelier",

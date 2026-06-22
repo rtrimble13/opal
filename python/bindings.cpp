@@ -131,6 +131,23 @@ PYBIND11_MODULE(_opal, m) {
         .def_readwrite("rho", &SabrParams::rho)
         .def_readwrite("nu", &SabrParams::nu);
 
+    py::class_<SabrSmile>(m, "SabrSmile")
+        .def(py::init([](double forward, double expiry, const SabrParams& p) {
+                 return SabrSmile{forward, expiry, p};
+             }),
+             py::arg("forward"), py::arg("expiry"), py::arg("params"))
+        .def_readwrite("forward", &SabrSmile::forward)
+        .def_readwrite("expiry", &SabrSmile::expiry)
+        .def_readwrite("params", &SabrSmile::params)
+        .def("vol", &SabrSmile::vol, py::arg("strike"),
+             "Hagan lognormal implied vol at a strike.");
+
+    py::class_<VolSurface>(m, "VolSurface")
+        .def(py::init<std::vector<SabrSmile>>(), py::arg("smiles"),
+             "Surface from per-expiry SABR smiles; interpolates total variance.")
+        .def("vol", &VolSurface::vol, py::arg("strike"), py::arg("expiry"),
+             "Implied lognormal vol at (strike, expiry).");
+
     py::class_<HullWhiteParams>(m, "HullWhiteParams")
         .def(py::init([](double a, double sigma) {
                  return HullWhiteParams{a, sigma};

@@ -106,6 +106,7 @@ opal price -i zcb-option -t call -K 0.9 -T 1 --tenor 3 -r 5% --mean-rev 0.1 --hw
 # Market-implied vol, chains, scenarios, portfolio risk
 opal implied -S 100 -K 105 -T 0.5 -r 4% --price 3.85
 opal chain -S 100 -T 0.5 -r 4% -v 25% --strikes 80:120:5
+opal chain -S 100 -T 1 -r 4% --sabr 0.2:1.0:-0.3:0.4 --strikes 80:120:5   # ladder off a SABR smile
 opal scenario -S 100 -K 100 -T 0.5 -r 4% -v 25% --spot-range -20:20:5 --vol-range -10:10:5
 opal portfolio --file examples/book.csv
 ```
@@ -182,6 +183,13 @@ opal.lsmc_heston_price("put", spot=100, strike=100, expiry=1.0, rate=0.05, div=0
 hg = opal.heston_greeks("call", spot=100, strike=100, expiry=1.0, rate=0.03, div=0.0, params=hp)
 hg.delta, hg.vega / 100, hg.dv0, hg.drho
 
+# SABR smile / surface container: one calibrated set serves a vol per strike/expiry
+sp = opal.SabrParams(alpha=0.2, beta=1.0, rho=-0.3, nu=0.4)
+smile = opal.SabrSmile(forward=100, expiry=1.0, params=sp)
+smile.vol(90), smile.vol(110)                       # skew: lower strike richer
+surf = opal.VolSurface([opal.SabrSmile(100, 0.5, sp), opal.SabrSmile(100, 2.0, sp)])
+surf.vol(strike=95, expiry=1.0)                     # interpolated in total variance
+
 curve = opal.DiscountCurve([1, 2, 5, 10], [0.042, 0.040, 0.039, 0.041])
 opal.swaption_price(curve, "payer", strike=0.04, vol=0.25, expiry=1.0, tenor=5.0)
 
@@ -247,7 +255,7 @@ reported with its row and column, e.g.
 
 ## Validation
 
-`opal_tests` (197 checks) validates against Hull and Haug reference values,
+`opal_tests` (204 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
 model degeneracies (Heston → BS, SABR → flat lognormal), short-dated /

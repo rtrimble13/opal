@@ -55,6 +55,8 @@ MARKET DATA
   -r, --rate       Continuously compounded risk-free rate (0.05 or 5%)
   -q, --div        Continuous dividend yield
   -v, --vol        Volatility (lognormal; absolute for bachelier)
+  --sabr           Drive vol off a SABR smile: alpha:beta:rho:nu
+                   (price/greeks/chain/scenario; replaces a flat --vol)
   -t, --type       call | put (payer | receiver for swaptions)
 
 MODELS  (--model)
@@ -566,6 +568,8 @@ void cmd_chain(const Args& a) {
     for (double k : strikes) {
         EquityTrade tc = base;
         tc.K = k;
+        // Price each strike off the calibrated SABR smile, if one was given.
+        if (base.has_sabr) tc.vol = base.sabr_vol_at(base.S, k);
         tc.type = OptionType::Call;
         EquityTrade tp = tc;
         tp.type = OptionType::Put;
@@ -599,8 +603,12 @@ void cmd_scenario(const Args& a) {
     for (double ds : spot_pct) {
         double s = t.S * (1.0 + ds / 100.0);
         std::vector<std::string> row{fmt_num(s, 2)};
+        // With a SABR smile, the base vol per row is the smile vol at the
+        // shifted forward (so the grid shows the smile rolling with spot); the
+        // vol-range columns then shift that. Otherwise it is the flat --vol.
+        double row_vol = t.has_sabr ? t.sabr_vol_at(s, t.K) : t.vol;
         for (double dv : vol_pts) {
-            double v = t.vol + dv / 100.0;
+            double v = row_vol + dv / 100.0;
             if (v <= 0.0) {
                 row.push_back("-");
                 continue;

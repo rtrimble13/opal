@@ -198,6 +198,22 @@ See `examples/opal_walkthrough.ipynb` for a full Jupyter tour (smiles under
 Heston, SABR cubes, scenario grids) and `examples/pretrade_analysis.py` for a
 scripted pre-trade workflow.
 
+## Vignettes
+
+For narrative, worked walk-throughs — every CLI command and Python function,
+with real output explained field by field, and end-to-end use cases — see the
+[vignettes](docs/vignettes/README.md):
+
+1. [Getting started](docs/vignettes/01-getting-started.md)
+2. [Pricing and numerical methods](docs/vignettes/02-pricing-and-methods.md)
+3. [Exotic payoffs](docs/vignettes/03-exotic-payoffs.md)
+4. [Stochastic volatility](docs/vignettes/04-stochastic-volatility.md)
+5. [Greeks and implied vol](docs/vignettes/05-greeks-and-implied-vol.md)
+6. [Scenario analysis](docs/vignettes/06-scenario-analysis.md)
+7. [Portfolio risk](docs/vignettes/07-portfolio-risk.md)
+8. [Interest-rate options](docs/vignettes/08-interest-rate-options.md)
+9. [The Python API](docs/vignettes/09-python-api.md)
+
 ## Portfolio files
 
 `opal portfolio --file book.csv` consumes a CSV with columns

@@ -42,7 +42,11 @@ inline CapFloorResult cap_floor_price(const DiscountCurve& discount_curve,
     OptionType type = is_cap ? OptionType::Call : OptionType::Put;
 
     CapFloorResult res;
-    for (double t1 = first_fixing; t1 + tau <= maturity + 1e-10; t1 += tau) {
+    // Integer period count instead of accumulating `t1 += tau` (drift-free for
+    // non-power-of-two tau; #10). Caplet i fixes at first_fixing + i*tau.
+    int n = static_cast<int>(std::lround((maturity - first_fixing) / tau));
+    for (int i = 0; i < n; ++i) {
+        double t1 = first_fixing + i * tau;
         double t2 = t1 + tau;
         double F = forward_curve.forward_rate(t1, t2);
         double df = discount_curve.discount(t2);

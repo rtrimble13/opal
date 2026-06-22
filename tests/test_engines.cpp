@@ -300,3 +300,19 @@ TEST_CASE(numerical_greeks_match_analytic) {
     // One-day theta approximates the instantaneous theta.
     CHECK_CLOSE(num.theta, ana.theta, 0.05);
 }
+
+TEST_CASE(mc_heston_input_validation) {
+    // mc_heston now guards market inputs and Heston params like heston_price,
+    // instead of silently producing garbage (#11).
+    HestonParams hp{0.04, 1.5, 0.04, 0.3, -0.5};
+    McConfig cfg;
+    cfg.paths = 1000;
+    cfg.steps = 10;
+    auto payoff = vanilla_payoff(OptionType::Call, 100.0);
+    CHECK_THROWS(mc_heston(payoff, -100.0, 1.0, 0.05, 0.0, hp, cfg));   // S <= 0
+    CHECK_THROWS(mc_heston(payoff, 100.0, 0.0, 0.05, 0.0, hp, cfg));    // T <= 0
+    CHECK_THROWS(mc_heston(payoff, 100.0, 1.0, 0.05, 0.0,
+                           HestonParams{0.04, -1.0, 0.04, 0.3, -0.5}, cfg));  // kappa
+    CHECK_THROWS(mc_heston(payoff, 100.0, 1.0, 0.05, 0.0,
+                           HestonParams{0.04, 1.5, 0.04, 0.3, -1.5}, cfg));   // rho
+}

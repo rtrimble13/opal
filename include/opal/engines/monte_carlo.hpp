@@ -322,6 +322,13 @@ inline McResult mc_heston(const PathPayoff& payoff, double S, double T, double r
                           double q, const HestonParams& hp,
                           const McConfig& cfg = {}) {
     require(cfg.paths > 0 && cfg.steps > 0, "mc: paths and steps must be positive");
+    // Mirror mc_gbm's market-input guard and validate the Heston parameters (as
+    // heston_price does), so bad inputs raise a clear error rather than
+    // silently producing garbage (#11).
+    require(S > 0.0 && T > 0.0, "mc_heston: spot and expiry must be positive");
+    require(hp.v0 >= 0.0 && hp.theta >= 0.0 && hp.kappa > 0.0 && hp.xi > 0.0,
+            "mc_heston: invalid Heston parameters (need v0,theta>=0, kappa,xi>0)");
+    require(hp.rho >= -1.0 && hp.rho <= 1.0, "mc_heston: rho must be in [-1, 1]");
     double dt = T / cfg.steps;
     double sqdt = std::sqrt(dt);
     double df = std::exp(-r * T);

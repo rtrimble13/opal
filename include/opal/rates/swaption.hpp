@@ -32,7 +32,13 @@ inline SwaptionResult swap_metrics(const DiscountCurve& discount_curve,
     double tau = 1.0 / pay_freq;
     double annuity = 0.0;
     double float_pv = 0.0;
-    for (double t = expiry + tau; t <= expiry + tenor + 1e-10; t += tau) {
+    // Index payment dates by an explicit integer period count rather than
+    // accumulating `t += tau`, which drifts for non-power-of-two tau (e.g.
+    // monthly) over long tenors and makes the final-period inclusion depend on
+    // a float tolerance (#10).
+    int n = static_cast<int>(std::lround(tenor / tau));
+    for (int i = 1; i <= n; ++i) {
+        double t = expiry + i * tau;
         double df = discount_curve.discount(t);
         annuity += tau * df;
         float_pv += tau * df * forward_curve.forward_rate(t - tau, t);

@@ -47,6 +47,7 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - name: Build
+        shell: bash
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release \
             -DOPAL_BUILD_TESTS=OFF -DOPAL_BUILD_PYTHON=OFF

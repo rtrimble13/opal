@@ -70,7 +70,10 @@ inline double hw_cap_price(const DiscountCurve& curve, const HullWhiteParams& p,
                            double K, bool is_cap = true) {
     require(tau > 0.0, "hull-white: tau must be positive");
     double price = 0.0;
-    for (double t1 = first_fixing; t1 + tau <= maturity + 1e-10; t1 += tau) {
+    // Integer period count instead of accumulating `t1 += tau` (#10).
+    int n = static_cast<int>(std::lround((maturity - first_fixing) / tau));
+    for (int i = 0; i < n; ++i) {
+        double t1 = first_fixing + i * tau;
         double t2 = t1 + tau;
         price += is_cap ? hw_caplet_price(curve, p, t1, t2, K)
                         : hw_floorlet_price(curve, p, t1, t2, K);

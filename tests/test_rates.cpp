@@ -123,3 +123,15 @@ TEST_CASE(hull_white) {
     double capfull = hw_cap_price(curve, p, 0.5, 3.0, 0.5, Kr);
     CHECK_TRUE(capfull > 0.0);
 }
+
+TEST_CASE(cashflow_schedule_period_count) {
+    DiscountCurve curve(0.03);
+    // Monthly cap, tau = 1/12 over ~2y: exactly 23 caplets, with no
+    // floating-point drift in the schedule (#10).
+    auto monthly = cap_floor_price(curve, 0.03, 0.2, 1.0 / 12.0, 2.0, 1.0 / 12.0,
+                                   true);
+    CHECK_TRUE(monthly.caplets.size() == 23u);
+    // Power-of-two tau is unchanged: quarterly from 0.25 to 3.0 is 11 caplets.
+    auto quarterly = cap_floor_price(curve, 0.04, 0.25, 0.25, 3.0, 0.25, true);
+    CHECK_TRUE(quarterly.caplets.size() == 11u);
+}

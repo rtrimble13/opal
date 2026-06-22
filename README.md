@@ -247,7 +247,7 @@ reported with its row and column, e.g.
 
 ## Validation
 
-`opal_tests` (191 checks) validates against Hull and Haug reference values,
+`opal_tests` (197 checks) validates against Hull and Haug reference values,
 no-arbitrage identities (put-call parity, digital parity, barrier in/out
 parity), cross-engine agreement (analytic vs trees vs PDE vs Monte Carlo),
 model degeneracies (Heston → BS, SABR → flat lognormal), short-dated /

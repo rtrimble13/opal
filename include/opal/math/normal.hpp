@@ -23,7 +23,9 @@ inline double norm_cdf(double x) {
 }
 
 /// Inverse standard normal CDF (Acklam's algorithm with one Halley refinement).
-/// Accurate to ~1e-15 over (0, 1).
+/// Accurate to ~1e-15 over (0, 1). Public utility (quantiles, normal-variate
+/// generation, VaR); intentionally provided even though the bundled pricers do
+/// not all call it (#12).
 inline double norm_ppf(double p) {
     if (p <= 0.0 || p >= 1.0) {
         if (p == 0.0) return -std::numeric_limits<double>::infinity();
@@ -68,7 +70,8 @@ inline double norm_ppf(double p) {
 }
 
 /// Bivariate normal CDF: P(X < a, Y < b) with correlation rho.
-/// Genz's algorithm (1989-2004), accurate to ~1e-14.
+/// Genz's algorithm (1989-2004), accurate to ~1e-14. Used by the two-asset
+/// (Stulz/correlation) and compound-option closed forms in models/ (#12).
 inline double bivar_norm_cdf(double a, double b, double rho) {
     if (rho > 1.0) rho = 1.0;
     if (rho < -1.0) rho = -1.0;
